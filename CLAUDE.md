@@ -25,12 +25,11 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 - **Next.js** (App Router) + **TypeScript** + **Tailwind CSS**
 - **Firebase**: Authentication (Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
 - **jsPDF** para generar el PDF, **JSZip** para el ZIP
-- **QR**: `BarcodeDetector` nativo, con **jsQR** como respaldo
 - **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`
 - **PWA**: manifest + íconos, para instalarla en la pantalla de inicio
 - Despliegue: **Firebase Hosting** (exportación estática: `output: 'export'`)
 
-> Todo el procesamiento (cámara, QR, OCR, PDF) ocurre en el navegador. No hay backend propio ni Cloud Functions.
+> Todo el procesamiento (cámara, OCR, PDF) ocurre en el navegador. No hay backend propio ni Cloud Functions.
 >
 > **Idea clave:** las fotos comprimidas se guardan **dentro de Firestore** y el PDF **no se guarda**: se genera en el momento de descargarlo o compartirlo, a partir de esas fotos.
 >
@@ -106,8 +105,8 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 Ejecutar en este orden y quedarse con el primer resultado válido de cada dato:
 
 **RUT**
-1. **QR del reverso** (carnets desde 2013): la URL trae `RUN=12345678-5`. Extraer con `/RUN=([0-9.]+-?[0-9kK])/i`.
-2. **OCR del frontal**: buscar un patrón de RUN (`\d{1,2}\.?\d{3}\.?\d{3}-?[\dkK]`).
+1. **OCR del frontal**: buscar un patrón de RUN (`\d{1,2}\.?\d{3}\.?\d{3}-?[\dkK]`).
+2. **OCR de la MRZ del reverso** (línea 2), solo si el dígito verificador es válido.
 3. Validar siempre con **módulo 11** y formatear como `12.345.678-5`. Si el dígito verificador no coincide, mostrar una advertencia.
 
 **Nombre**
@@ -116,7 +115,7 @@ Ejecutar en este orden y quedarse con el primer resultado válido de cada dato:
 3. Armar el resultado como `Nombres Apellidos` con mayúscula inicial en cada palabra.
 
 **Detalles técnicos**
-- Hacer el QR y el OCR sobre la foto **en alta resolución** recién capturada, antes de comprimirla para guardarla.
+- Hacer el OCR sobre la foto **en alta resolución** recién capturada, antes de comprimirla para guardarla.
 - Cargar Tesseract.js de forma diferida (solo al abrir el escáner) y reutilizar el mismo worker.
 - Antes del OCR, pasar la imagen a escala de grises y aumentar el contraste.
 - Mostrar el estado: "Leyendo datos…", "Datos leídos" o "No se pudieron leer".
@@ -148,7 +147,7 @@ app/
   escanear/page.tsx             // escaneo (?contratista=...)
   carnet/page.tsx               // detalle (?id=...)
 components/  Folder.tsx, CardRow.tsx, CameraCapture.tsx, ConfirmDialog.tsx
-lib/         firebase.ts, db.ts, pdf.ts, ocr.ts, qr.ts, rut.ts, image.ts
+lib/         firebase.ts, db.ts, pdf.ts, ocr.ts, mrz.ts, rut.ts, image.ts
 firestore.rules
 public/manifest.json, icons/
 ```
@@ -179,9 +178,9 @@ public/manifest.json, icons/
 
 ### Fase 4 — Lectura automática
 **Prompt:**
-> Implementa la sección 6 de CLAUDE.md: QR del reverso, OCR con Tesseract.js del frontal y de la MRZ, validación de RUT con módulo 11 y rellenado automático sin sobrescribir lo que el usuario escribió. Deja la interfaz `readCard` en `lib/ocr.ts`. Agrega pruebas unitarias para `rut.ts` y para el análisis de la MRZ.
+> Implementa la sección 6 de CLAUDE.md: OCR con Tesseract.js del frontal y de la MRZ, validación de RUT con módulo 11 y rellenado automático sin sobrescribir lo que el usuario escribió. Deja la interfaz `readCard` en `lib/ocr.ts`. Agrega pruebas unitarias para `rut.ts` y para el análisis de la MRZ.
 
-**Cómo verificar:** con un carnet nuevo, el RUT sale del QR; el nombre se rellena en la mayoría de las fotos nítidas.
+**Cómo verificar:** con un carnet nuevo, el RUT y el nombre se rellenan en la mayoría de las fotos nítidas.
 
 ### Fase 5 — ZIP, PWA y publicación
 **Prompt:**

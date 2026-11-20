@@ -12,6 +12,10 @@ const schibsted = Schibsted_Grotesk({
 export const metadata: Metadata = {
   title: "Carnets",
   description: "Escáner de carnets por contratista",
+  manifest: "/manifest.json",
+  icons: { apple: "/icons/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "Carnets", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {

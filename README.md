@@ -18,7 +18,21 @@ Next.js (App Router, `output: 'export'`) · TypeScript · Tailwind CSS · Fireba
 
 ## Estado
 - [x] Fase 1 — Proyecto base, login con Google y lista blanca `allowedUsers`
-- [ ] Fase 2 — Carpetas de contratistas
-- [ ] Fase 3 — Cámara, guardado y PDF
-- [ ] Fase 4 — Lectura automática (QR + OCR)
-- [ ] Fase 5 — ZIP, PWA y publicación
+- [x] Fase 2 — Carpetas de contratistas
+- [x] Fase 3 — Cámara, guardado y PDF
+- [x] Fase 4 — Lectura automática (OCR del frontal + MRZ del reverso)
+- [x] Fase 5 — ZIP, PWA y publicación
+
+App publicada: https://carnets-a802e.web.app
+
+## Publicar una nueva versión
+```bash
+npm run build
+npx firebase-tools deploy --only hosting      # la app
+npx firebase-tools deploy --only firestore    # las reglas, si cambiaron
+```
+
+## Pruebas
+```bash
+npm test
+```
