@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAllowedUser, useAuth } from "@/components/AuthProvider";
+import Link from "next/link";
+import { useAllowedUser } from "@/components/AuthProvider";
 import { CardRow } from "@/components/CardRow";
 import { PromptDialog } from "@/components/Dialog";
 import { Folder } from "@/components/Folder";
@@ -12,8 +13,7 @@ import { cleanRut } from "@/lib/rut";
 import { normalize } from "@/lib/text";
 
 export default function HomePage() {
-  const { user } = useAllowedUser();
-  const { signOut } = useAuth();
+  const { user, username } = useAllowedUser();
   const router = useRouter();
   const [contractors, setContractors] = useState<Contractor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +67,11 @@ export default function HomePage() {
     <div className="mx-auto max-w-3xl px-4 pb-28">
       <PageHeader
         title="Contratistas"
-        subtitle={user.email}
+        subtitle={username}
         actions={
-          <button type="button" onClick={() => signOut()} className={`${btn.ghost} text-muted`} aria-label="Cerrar sesión">
-            <Icon.logout />
-          </button>
+          <Link href="/configuracion" className={`${btn.ghost} text-muted`} aria-label="Configuración">
+            <Icon.gear />
+          </Link>
         }
       />
 

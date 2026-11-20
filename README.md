@@ -5,6 +5,9 @@ App web para escanear carnets de trabajadores, organizados por contratista. Se i
 - Especificación completa: [`CLAUDE.md`](CLAUDE.md)
 - Configuración de Firebase: [`docs/CONFIGURAR-FIREBASE.md`](docs/CONFIGURAR-FIREBASE.md)
 
+## Acceso
+Cada persona entra con **su usuario** y la **contraseña común** del equipo. La primera vez que se abre la app pide crear el usuario administrador y la contraseña común. Después, el admin agrega o desactiva usuarios en **Configuración**.
+
 ## Desarrollo
 ```bash
 cp .env.local.example .env.local   # y completa los valores
@@ -14,7 +17,7 @@ npm run build                      # exportación estática en out/
 ```
 
 ## Stack
-Next.js (App Router, `output: 'export'`) · TypeScript · Tailwind CSS · Firebase Auth (Google) + Firestore · Firebase Hosting.
+Next.js (App Router, `output: 'export'`) · TypeScript · Tailwind CSS · Firebase Auth (usuario y contraseña) + Firestore · Firebase Hosting.
 
 ## Estado
 - [x] Fase 1 — Proyecto base, login con Google y lista blanca `allowedUsers`
@@ -35,4 +38,10 @@ npx firebase-tools deploy --only firestore    # las reglas, si cambiaron
 ## Pruebas
 ```bash
 npm test
+```
+
+Para probar sin tocar los datos reales, usa los emuladores de Firebase:
+```bash
+npx firebase-tools emulators:start --only auth,firestore
+NEXT_PUBLIC_USE_EMULATORS=1 npm run dev
 ```

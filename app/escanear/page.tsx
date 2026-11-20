@@ -10,13 +10,14 @@ import { getContractor, saveCard } from "@/lib/db";
 import { compressPair, makeThumb, resize, rotate90, toJpeg } from "@/lib/image";
 import { preloadOcr, readCard } from "@/lib/ocr";
 import { formatRut, isValidRut } from "@/lib/rut";
+import { getSettings } from "@/lib/settings";
 
 type Side = "front" | "back";
 const LABEL: Record<Side, string> = { front: "Lado frontal", back: "Lado trasero" };
 type ReadStatus = "idle" | "reading" | "done" | "failed";
 
 function ScanView({ contractorId }: { contractorId: string }) {
-  const { user } = useAllowedUser();
+  const { user, username } = useAllowedUser();
   const router = useRouter();
   const backHref = `/contratista?id=${contractorId}`;
 
@@ -38,7 +39,7 @@ function ScanView({ contractorId }: { contractorId: string }) {
       .then((c) => setContractorName(c ? c.name : null))
       .catch(() => setError("No se pudo cargar el contratista. Revisa tu conexión."));
     // Cargar el OCR en segundo plano mientras se captura.
-    preloadOcr().catch(() => undefined);
+    if (getSettings().autoRead) preloadOcr().catch(() => undefined);
   }, [contractorId]);
 
   // Lectura automática cuando están ambos lados (se repite si cambia una foto).
@@ -46,7 +47,7 @@ function ScanView({ contractorId }: { contractorId: string }) {
   const updateShots = useCallback((next: { front: HTMLCanvasElement | null; back: HTMLCanvasElement | null }) => {
     setShots(next);
     const { front, back } = next;
-    if (!front || !back) return;
+    if (!front || !back || !getSettings().autoRead) return;
     const id = ++runId.current;
     setReadStatus("reading");
     readCard(front, back)
@@ -104,6 +105,7 @@ function ScanView({ contractorId }: { contractorId: string }) {
         thumb: makeThumb(shots.front),
         images,
         uid: user.uid,
+        username,
       });
       router.replace(backHref);
     } catch {

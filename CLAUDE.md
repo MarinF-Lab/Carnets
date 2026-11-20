@@ -23,7 +23,7 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 ## 2. Stack (todo en el plan gratuito Spark de Firebase)
 
 - **Next.js** (App Router) + **TypeScript** + **Tailwind CSS**
-- **Firebase**: Authentication (Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
+- **Firebase**: Authentication (usuario + contraseña común) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
 - **jsPDF** para generar el PDF, **JSZip** para el ZIP
 - **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`
 - **PWA**: manifest + íconos, para instalarla en la pantalla de inicio
@@ -50,13 +50,19 @@ cards/{cardId}                       // documento LIVIANO, el que se lista
   thumb: string                      // miniatura del frontal: data URL JPEG, 240 px, ~15 KB
   createdAt: Timestamp
   createdBy: uid
+  createdByName: string              // usuario que lo escaneó
 
 cards/{cardId}/images/main           // documento PESADO, se lee solo al ver o descargar
   front: string                      // data URL JPEG
   back: string                       // data URL JPEG
 
-allowedUsers/{email}                 // lista blanca de usuarios autorizados
+users/{uid}                          // usuarios de la app (los crea un admin)
+  username: string                   // "juan.perez"
   role: "admin" | "user"
+  active: boolean                    // false = desactivado, no puede entrar
+
+config/setup                         // marca de configuración inicial (primer admin)
+  adminUid: string
 ```
 
 **Reglas de tamaño de las imágenes** (Firestore permite máximo 1 MiB por documento):
@@ -67,10 +73,11 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 
 ## 4. Seguridad
 
-- Inicio de sesión obligatorio con Google.
-- Solo pueden entrar los correos que estén en `allowedUsers`. Los demás ven "Sin acceso".
-- **Reglas de Firestore** (`firestore.rules`): leer y escribir solo si `request.auth != null` y existe `allowedUsers/{request.auth.token.email}`. La regla cubre también la subcolección `images`.
-- `allowedUsers` solo se puede editar desde la consola de Firebase (sin escritura desde la app).
+- Inicio de sesión con **usuario + contraseña común** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`). Cada persona tiene su usuario; todos comparten la contraseña.
+- **Configuración inicial**: si no existe `config/setup`, la app pide crear el primer admin y la contraseña común.
+- Solo pueden entrar los usuarios con documento `users/{uid}` y `active == true`. Los demás ven "Sin acceso".
+- **Reglas de Firestore** (`firestore.rules`): leer y escribir solo si el usuario está en `users` y activo (incluye la subcolección `images`). Solo un admin crea o modifica usuarios; un admin no puede quitarse su rol ni desactivarse.
+- El admin gestiona usuarios en **Configuración** (agregar, desactivar, cambiar rol).
 - Solo un usuario con rol `admin` puede eliminar contratistas.
 - Al eliminar un carnet, borrar también `images/main`. Al eliminar un contratista, borrar todos sus carnets y sus imágenes.
 
@@ -96,9 +103,15 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 6. Aviso: **"Revisa que los datos estén correctos"**. Lo que el usuario escriba a mano nunca se sobrescribe.
 7. Botón **"Guardar"**, activo solo cuando hay nombre y ambas fotos. Guarda en Firestore según la sección 3.
 
+**Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
+
 ### 5.4 Detalle de un carnet
 - Lee `images/main` y muestra ambos lados en grande, junto al nombre del archivo.
 - Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. También **Eliminar**.
+
+### 5.5 Configuración
+- Captura automática y lectura automática (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
+- Cuenta y cerrar sesión. Solo admin: usuarios.
 
 ## 6. Lectura automática
 

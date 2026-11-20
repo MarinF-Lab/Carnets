@@ -90,6 +90,9 @@ function CardView({ id }: { id: string }) {
             <Icon.file width={18} height={18} className="shrink-0" />
             {fileName}
           </p>
+          {data.card.createdByName && (
+            <p className="-mt-2 mb-4 text-sm text-muted">Escaneado por {data.card.createdByName}</p>
+          )}
           {data.images ? (
             <div className="grid gap-5 sm:grid-cols-2">
               {(

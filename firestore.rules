@@ -4,29 +4,64 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() {
-      return request.auth != null
-        && request.auth.token.email != null
-        && request.auth.token.email_verified == true;
+      return request.auth != null;
     }
 
-    function allowedPath() {
-      return /databases/$(database)/documents/allowedUsers/$(request.auth.token.email);
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
     }
 
-    // Usuario con sesión iniciada y presente en la lista blanca.
+    function setupPath() {
+      return /databases/$(database)/documents/config/setup;
+    }
+
+    // Usuario con sesión iniciada, registrado en users/{uid} y activo.
     function allowed() {
-      return signedIn() && exists(allowedPath());
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.active == true;
     }
 
     function isAdmin() {
-      return allowed() && get(allowedPath()).data.role == 'admin';
+      return allowed() && get(userPath(request.auth.uid)).data.role == 'admin';
     }
 
-    // Lista blanca: cada usuario solo puede leer su propio registro.
-    // Se edita únicamente desde la consola de Firebase.
-    match /allowedUsers/{email} {
-      allow read: if signedIn() && request.auth.token.email == email;
-      allow write: if false;
+    function validUser(d) {
+      return d.username is string
+        && d.username.matches('^[a-z0-9][a-z0-9._-]{1,29}$')
+        && d.role in ['admin', 'user']
+        && d.active is bool;
+    }
+
+    // Marca de configuración inicial: se crea una sola vez, junto con el primer admin.
+    match /config/setup {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.adminUid == request.auth.uid
+        && getAfter(userPath(request.auth.uid)).data.role == 'admin';
+      allow update, delete: if false;
+    }
+
+    // Usuarios de la app. Solo un admin los crea o modifica.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if validUser(request.resource.data) && (
+        isAdmin()
+        // Configuración inicial: el primer admin se registra a sí mismo.
+        || (signedIn()
+            && request.auth.uid == uid
+            && !exists(setupPath())
+            && existsAfter(setupPath())
+            && request.resource.data.role == 'admin'
+            && request.resource.data.active == true)
+      );
+      // Un admin no puede quitarse a sí mismo el rol ni desactivarse.
+      allow update: if isAdmin()
+        && validUser(request.resource.data)
+        && request.resource.data.username == resource.data.username
+        && (uid != request.auth.uid
+            || (request.resource.data.role == 'admin' && request.resource.data.active == true));
+      allow delete: if false;
     }
 
     // Solo un admin puede eliminar contratistas.
@@ -43,7 +78,7 @@ service cloud.firestore {
       }
     }
 
-    // Todo lo demás, denegado.
+    // Todo lo demás (incluida la antigua lista allowedUsers), denegado.
     match /{document=**} {
       allow read, write: if false;
     }

@@ -1,7 +1,6 @@
 /** Utilidades de imagen (solo navegador). */
 
-/** Proporción de un carnet: 85,6 × 54 mm. */
-export const CARD_RATIO = 85.6 / 54;
+export { CARD_RATIO } from "./align";
 
 export function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");

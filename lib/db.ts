@@ -30,6 +30,8 @@ export type Card = {
   rut: string | null;
   thumb: string;
   createdAt: Date | null;
+  /** Usuario que escaneó el carnet. */
+  createdByName: string | null;
 };
 
 export type CardImages = { front: string; back: string };
@@ -61,6 +63,7 @@ function toCard(s: QueryDocumentSnapshot | DocumentSnapshot): Card {
     rut: d.rut ? String(d.rut) : null,
     thumb: String(d.thumb ?? ""),
     createdAt: toDate(d.createdAt),
+    createdByName: d.createdByName ? String(d.createdByName) : null,
   };
 }
 
@@ -173,6 +176,7 @@ export async function saveCard(input: {
   thumb: string;
   images: CardImages;
   uid: string;
+  username: string;
 }): Promise<string> {
   const ref = doc(cardsCol());
   const batch = writeBatch(db());
@@ -183,6 +187,7 @@ export async function saveCard(input: {
     thumb: input.thumb,
     createdAt: serverTimestamp(),
     createdBy: input.uid,
+    createdByName: input.username,
   });
   batch.set(imagesDoc(ref.id), { front: input.images.front, back: input.images.back });
   batch.update(doc(contractorsCol(), input.contractorId), { cardCount: increment(1) });

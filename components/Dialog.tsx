@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { btn, input, Spinner } from "./ui";
 
-function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+export function Sheet({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
