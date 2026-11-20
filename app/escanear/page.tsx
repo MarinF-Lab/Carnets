@@ -22,6 +22,7 @@ function ScanView({ contractorId }: { contractorId: string }) {
   const backHref = `/contratista?id=${contractorId}`;
 
   const [contractorName, setContractorName] = useState<string | null | undefined>(undefined);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [camera, setCamera] = useState<Side | null>("front");
   const [shots, setShots] = useState<{ front: HTMLCanvasElement | null; back: HTMLCanvasElement | null }>({
     front: null,
@@ -36,7 +37,10 @@ function ScanView({ contractorId }: { contractorId: string }) {
 
   useEffect(() => {
     getContractor(contractorId)
-      .then((c) => setContractorName(c ? c.name : null))
+      .then((c) => {
+        setContractorName(c ? c.name : null);
+        setGroupId(c?.groupId ?? null);
+      })
       .catch(() => setError("No se pudo cargar el contratista. Revisa tu conexión."));
     // Cargar el OCR en segundo plano mientras se captura.
     if (getSettings().autoRead) preloadOcr().catch(() => undefined);
@@ -94,11 +98,16 @@ function ScanView({ contractorId }: { contractorId: string }) {
 
   async function save() {
     if (!shots.front || !shots.back || !name.trim()) return;
+    if (!groupId) {
+      setError("Este contratista no tiene grupo. Asígnale uno en Configuración.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const images = compressPair(shots.front, shots.back);
       await saveCard({
+        groupId,
         contractorId,
         name,
         rut: rut.trim() ? formatRut(rut) : null,

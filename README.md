@@ -6,7 +6,8 @@ App web para escanear carnets de trabajadores, organizados por contratista. Se i
 - Configuración de Firebase: [`docs/CONFIGURAR-FIREBASE.md`](docs/CONFIGURAR-FIREBASE.md)
 
 ## Acceso
-Cada persona entra con **su usuario** y la **contraseña común** del equipo. La primera vez que se abre la app pide crear el usuario administrador y la contraseña común. Después, el admin agrega o desactiva usuarios en **Configuración**.
+- **Usuario**: entra con su usuario y la **contraseña de su grupo**. Los usuarios del mismo grupo comparten datos; solo pueden agregar (no renombrar ni eliminar).
+- **Administrador**: entra con **Google** (correos autorizados). Crea grupos y contraseñas, usuarios y otros administradores, y ve todos los grupos.
 
 ## Desarrollo
 ```bash
@@ -17,7 +18,7 @@ npm run build                      # exportación estática en out/
 ```
 
 ## Stack
-Next.js (App Router, `output: 'export'`) · TypeScript · Tailwind CSS · Firebase Auth (usuario y contraseña) + Firestore · Firebase Hosting.
+Next.js (App Router, `output: 'export'`) · TypeScript · Tailwind CSS · Firebase Auth (usuario y contraseña / Google) + Firestore · Firebase Hosting.
 
 ## Estado
 - [x] Fase 1 — Proyecto base, login con Google y lista blanca `allowedUsers`

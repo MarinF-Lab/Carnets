@@ -7,78 +7,103 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function userPath(uid) {
-      return /databases/$(database)/documents/users/$(uid);
+    function docPath(coll, id) {
+      return /databases/$(database)/documents/$(coll)/$(id);
     }
 
-    function setupPath() {
-      return /databases/$(database)/documents/config/setup;
-    }
-
-    // Usuario con sesión iniciada, registrado en users/{uid} y activo.
-    function allowed() {
-      return signedIn()
-        && exists(userPath(request.auth.uid))
-        && get(userPath(request.auth.uid)).data.active == true;
-    }
-
+    // Administrador: entra con Google y su correo está autorizado en admins/{email}.
     function isAdmin() {
-      return allowed() && get(userPath(request.auth.uid)).data.role == 'admin';
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true
+        && exists(docPath('admins', request.auth.token.email));
+    }
+
+    function me() {
+      return get(docPath('users', request.auth.uid)).data;
+    }
+
+    // Usuario: entra con usuario + contraseña del grupo; activo y con grupo.
+    function isMember() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(docPath('users', request.auth.uid))
+        && me().active == true
+        && me().get('groupId', null) is string;
+    }
+
+    // Puede ver/agregar datos del grupo g.
+    function inGroup(g) {
+      return isAdmin() || (isMember() && me().groupId == g);
     }
 
     function validUser(d) {
       return d.username is string
         && d.username.matches('^[a-z0-9][a-z0-9._-]{1,29}$')
-        && d.role in ['admin', 'user']
+        && d.groupId is string
+        && exists(docPath('groups', d.groupId))
         && d.active is bool;
     }
 
-    // Marca de configuración inicial: se crea una sola vez, junto con el primer admin.
-    match /config/setup {
-      allow read: if true;
-      allow create: if signedIn()
-        && request.resource.data.adminUid == request.auth.uid
-        && getAfter(userPath(request.auth.uid)).data.role == 'admin';
-      allow update, delete: if false;
+    // ---------- Administración (solo admins) ----------
+
+    match /admins/{email} {
+      allow read: if isAdmin() || (signedIn() && request.auth.token.email == email);
+      allow create: if isAdmin();
+      // Un admin no puede quitarse a sí mismo.
+      allow delete: if isAdmin() && email != request.auth.token.email;
+      allow update: if false;
     }
 
-    // Usuarios de la app. Solo un admin los crea o modifica.
-    match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create: if validUser(request.resource.data) && (
-        isAdmin()
-        // Configuración inicial: el primer admin se registra a sí mismo.
-        || (signedIn()
-            && request.auth.uid == uid
-            && !exists(setupPath())
-            && existsAfter(setupPath())
-            && request.resource.data.role == 'admin'
-            && request.resource.data.active == true)
-      );
-      // Un admin no puede quitarse a sí mismo el rol ni desactivarse.
-      allow update: if isAdmin()
-        && validUser(request.resource.data)
-        && request.resource.data.username == resource.data.username
-        && (uid != request.auth.uid
-            || (request.resource.data.role == 'admin' && request.resource.data.active == true));
+    match /groups/{groupId} {
+      allow read: if isAdmin() || (isMember() && me().groupId == groupId);
+      allow create, update: if isAdmin() && request.resource.data.name is string && request.resource.data.name.size() > 0;
       allow delete: if false;
     }
 
-    // Solo un admin puede eliminar contratistas.
+    // Contraseña de cada grupo: solo la ven y cambian los admins.
+    match /groupSecrets/{groupId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if isAdmin() && validUser(request.resource.data);
+      allow update: if isAdmin()
+        && validUser(request.resource.data)
+        && request.resource.data.username == resource.data.username;
+      allow delete: if false;
+    }
+
+    // ---------- Datos: los usuarios solo agregan; editar y eliminar es de admins ----------
+
     match /contractors/{contractorId} {
-      allow read, create, update: if allowed();
+      allow read: if inGroup(resource.data.get('groupId', null));
+      allow create: if inGroup(request.resource.data.groupId)
+        && request.resource.data.cardCount == 0;
+      allow update: if isAdmin()
+        // Un usuario solo puede sumar 1 al contador al guardar un carnet.
+        || (isMember()
+            && resource.data.get('groupId', null) == me().groupId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cardCount'])
+            && request.resource.data.cardCount == resource.data.get('cardCount', 0) + 1);
       allow delete: if isAdmin();
     }
 
     match /cards/{cardId} {
-      allow read, write: if allowed();
+      allow read: if inGroup(resource.data.get('groupId', null));
+      allow create: if inGroup(request.resource.data.groupId)
+        && get(docPath('contractors', request.resource.data.contractorId)).data.get('groupId', null) == request.resource.data.groupId;
+      allow update, delete: if isAdmin();
 
       match /images/{imageId} {
-        allow read, write: if allowed();
+        allow read: if inGroup(get(docPath('cards', cardId)).data.get('groupId', null));
+        allow create: if inGroup(getAfter(docPath('cards', cardId)).data.groupId);
+        allow update, delete: if isAdmin();
       }
     }
 
-    // Todo lo demás (incluida la antigua lista allowedUsers), denegado.
+    // Todo lo demás (incluidas allowedUsers y config de versiones anteriores), denegado.
     match /{document=**} {
       allow read, write: if false;
     }

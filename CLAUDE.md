@@ -23,7 +23,7 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 ## 2. Stack (todo en el plan gratuito Spark de Firebase)
 
 - **Next.js** (App Router) + **TypeScript** + **Tailwind CSS**
-- **Firebase**: Authentication (usuario + contraseña común) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
+- **Firebase**: Authentication (usuarios: usuario + contraseña del grupo; administradores: Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
 - **jsPDF** para generar el PDF, **JSZip** para el ZIP
 - **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`
 - **PWA**: manifest + íconos, para instalarla en la pantalla de inicio
@@ -39,11 +39,14 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 
 ```
 contractors/{contractorId}
+  groupId: string                    // grupo dueño de los datos
   name: string
+  cardCount: number
   createdAt: Timestamp
   createdBy: uid
 
 cards/{cardId}                       // documento LIVIANO, el que se lista
+  groupId: string
   contractorId: string
   name: string                       // "Juan Andrés Pérez Soto"
   rut: string | null                 // "12.345.678-5"
@@ -56,13 +59,19 @@ cards/{cardId}/images/main           // documento PESADO, se lee solo al ver o d
   front: string                      // data URL JPEG
   back: string                       // data URL JPEG
 
-users/{uid}                          // usuarios de la app (los crea un admin)
+groups/{groupId}                     // grupos: cada uno con su contraseña; sus usuarios comparten datos
+  name: string
+
+groupSecrets/{groupId}               // solo admins
+  password: string                   // contraseña común del grupo
+
+users/{uid}                          // usuarios (los crea un admin)
   username: string                   // "juan.perez"
-  role: "admin" | "user"
+  groupId: string
   active: boolean                    // false = desactivado, no puede entrar
 
-config/setup                         // marca de configuración inicial (primer admin)
-  adminUid: string
+admins/{email}                       // correos de Google autorizados como administrador
+  addedBy: string
 ```
 
 **Reglas de tamaño de las imágenes** (Firestore permite máximo 1 MiB por documento):
@@ -73,12 +82,13 @@ config/setup                         // marca de configuración inicial (primer 
 
 ## 4. Seguridad
 
-- Inicio de sesión con **usuario + contraseña común** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`). Cada persona tiene su usuario; todos comparten la contraseña.
-- **Configuración inicial**: si no existe `config/setup`, la app pide crear el primer admin y la contraseña común.
-- Solo pueden entrar los usuarios con documento `users/{uid}` y `active == true`. Los demás ven "Sin acceso".
-- **Reglas de Firestore** (`firestore.rules`): leer y escribir solo si el usuario está en `users` y activo (incluye la subcolección `images`). Solo un admin crea o modifica usuarios; un admin no puede quitarse su rol ni desactivarse.
-- El admin gestiona usuarios en **Configuración** (agregar, desactivar, cambiar rol).
-- Solo un usuario con rol `admin` puede eliminar contratistas.
+- La entrada tiene dos opciones:
+  - **Usuario**: usuario + **contraseña de su grupo** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`).
+  - **Administrador**: **Google**, solo correos autorizados en `admins/{email}`.
+- **Grupos**: cada grupo tiene su contraseña; los usuarios del mismo grupo comparten datos y no ven los de otros grupos. Los admins ven todos los grupos (selector en Inicio).
+- Los admins, en **Configuración**: crean grupos y ven/cambian su contraseña (la app actualiza la de todos sus usuarios), agregan/desactivan/cambian de grupo usuarios y autorizan otros correos como admin.
+- **Usuarios solo agregan**: crean contratistas y escanean carnets. Renombrar y eliminar es solo de admins.
+- **Reglas de Firestore** (`firestore.rules`): todo dato se filtra por `groupId`; `groupSecrets` y `admins` solo para admins; un admin no puede quitarse a sí mismo.
 - Al eliminar un carnet, borrar también `images/main`. Al eliminar un contratista, borrar todos sus carnets y sus imágenes.
 
 ## 5. Pantallas
@@ -111,7 +121,7 @@ config/setup                         // marca de configuración inicial (primer 
 
 ### 5.5 Configuración
 - Captura automática y lectura automática (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
-- Cuenta y cerrar sesión. Solo admin: usuarios.
+- Cuenta y cerrar sesión. Solo admin: grupos, datos sin grupo, usuarios y administradores.
 
 ## 6. Lectura automática
 

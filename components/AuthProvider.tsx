@@ -1,54 +1,62 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
-  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithCredential,
+  signInWithPopup,
+  signInWithRedirect,
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
-import { MIN_PASSWORD, isValidUsername, normalizeUsername, usernameToEmail, UserError, type Role } from "@/lib/users";
-
-export type { Role };
+import { MIN_PASSWORD, usernameToEmail, UserError } from "@/lib/users";
 
 export type AuthState =
   | { status: "loading" }
   | { status: "unconfigured" }
-  | { status: "setup" }
   | { status: "signedOut" }
-  | { status: "denied"; user: User }
+  | { status: "denied"; user: User; reason: "admin" | "user" | "noGroup" }
   | { status: "error"; message: string }
-  | { status: "allowed"; user: User; username: string; role: Role };
+  | { status: "allowed"; user: User; kind: "admin"; username: string; groupId: null }
+  | { status: "allowed"; user: User; kind: "user"; username: string; groupId: string };
 
 type AuthContextValue = {
   state: AuthState;
-  signIn: (username: string, password: string) => Promise<void>;
-  setup: (username: string, password: string) => Promise<void>;
+  signInUser: (username: string, password: string) => Promise<void>;
+  signInAdmin: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** Revisa que el usuario exista en users/{uid} y esté activo. */
-async function checkAccess(user: User): Promise<AuthState> {
-  try {
-    const snap = await getDoc(doc(db(), "users", user.uid));
-    if (!snap.exists() || snap.data().active === false) return { status: "denied", user };
-    const d = snap.data();
-    return { status: "allowed", user, username: String(d.username ?? ""), role: d.role === "admin" ? "admin" : "user" };
-  } catch (err) {
-    if ((err as { code?: string }).code === "permission-denied") return { status: "denied", user };
-    return { status: "error", message: "No se pudo verificar el acceso. Revisa tu conexión." };
-  }
+function isGoogle(user: User) {
+  return user.providerData.some((p) => p.providerId === "google.com");
 }
 
-/** ¿Ya se hizo la configuración inicial (existe el primer admin)? */
-async function setupDone(): Promise<boolean> {
-  const snap = await getDoc(doc(db(), "config", "setup"));
-  return snap.exists();
+/** Admin: correo autorizado en admins/{email}. Usuario: users/{uid} activo y con grupo. */
+async function checkAccess(user: User): Promise<AuthState> {
+  try {
+    if (isGoogle(user)) {
+      const email = user.email?.toLowerCase() ?? "";
+      const snap = email ? await getDoc(doc(db(), "admins", email)) : null;
+      if (!snap?.exists()) return { status: "denied", user, reason: "admin" };
+      return { status: "allowed", user, kind: "admin", username: email, groupId: null };
+    }
+    const snap = await getDoc(doc(db(), "users", user.uid));
+    if (!snap.exists() || snap.data().active === false) return { status: "denied", user, reason: "user" };
+    const d = snap.data();
+    if (!d.groupId) return { status: "denied", user, reason: "noGroup" };
+    return { status: "allowed", user, kind: "user", username: String(d.username ?? ""), groupId: String(d.groupId) };
+  } catch (err) {
+    if ((err as { code?: string }).code === "permission-denied") {
+      return { status: "denied", user, reason: isGoogle(user) ? "admin" : "user" };
+    }
+    return { status: "error", message: "No se pudo verificar el acceso. Revisa tu conexión." };
+  }
 }
 
 export function authErrorMessage(err: unknown): string {
@@ -59,7 +67,8 @@ export function authErrorMessage(err: unknown): string {
   if (code === "auth/too-many-requests") return "Demasiados intentos. Espera unos minutos.";
   if (code === "auth/network-request-failed") return "Sin conexión. Revisa tu internet.";
   if (code === "auth/weak-password") return `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`;
-  if (code === "auth/operation-not-allowed") return "El acceso con usuario y contraseña no está activado en Firebase.";
+  if (code === "auth/operation-not-allowed") return "Este método de acceso no está activado en Firebase.";
+  if (code === "permission-denied") return "No tienes permiso para hacer esto.";
   return "No se pudo completar. Inténtalo de nuevo.";
 }
 
@@ -67,21 +76,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(
     firebaseConfigured ? { status: "loading" } : { status: "unconfigured" },
   );
-  // Durante la configuración inicial se ignoran los cambios de sesión intermedios.
-  const busySetup = useRef(false);
 
   useEffect(() => {
     if (!firebaseConfigured) return;
     let active = true;
     const unsubscribe = onAuthStateChanged(auth(), async (user) => {
-      if (busySetup.current) return;
       if (!user) {
-        try {
-          const done = await setupDone();
-          if (active) setState({ status: done ? "signedOut" : "setup" });
-        } catch {
-          if (active) setState({ status: "signedOut" });
-        }
+        if (active) setState({ status: "signedOut" });
         return;
       }
       if (active) setState({ status: "loading" });
@@ -94,30 +95,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (username: string, password: string) => {
+  const signInUser = useCallback(async (username: string, password: string) => {
     await signInWithEmailAndPassword(auth(), usernameToEmail(username), password);
   }, []);
 
-  const setup = useCallback(async (rawUsername: string, password: string) => {
-    const username = normalizeUsername(rawUsername);
-    if (!isValidUsername(username)) throw new UserError("Usuario no válido: usa de 2 a 30 letras o números, sin espacios.");
-    if (password.length < MIN_PASSWORD) throw new UserError(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`);
-    busySetup.current = true;
+  const signInAdmin = useCallback(async () => {
+    // Solo con emuladores locales: cuenta de Google simulada (no existe en producción).
+    if (process.env.NEXT_PUBLIC_USE_EMULATORS === "1") {
+      const email = window.prompt("Correo de Google (emulador)");
+      if (!email) return;
+      const token = JSON.stringify({ sub: email, email, email_verified: true });
+      await signInWithCredential(auth(), GoogleAuthProvider.credential(token));
+      return;
+    }
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
     try {
-      const cred = await createUserWithEmailAndPassword(auth(), usernameToEmail(username), password);
-      const batch = writeBatch(db());
-      batch.set(doc(db(), "users", cred.user.uid), { username, role: "admin", active: true, createdAt: serverTimestamp() });
-      batch.set(doc(db(), "config", "setup"), { adminUid: cred.user.uid, createdAt: serverTimestamp() });
-      try {
-        await batch.commit();
-      } catch (err) {
-        // Otro dispositivo ya hizo la configuración: deshacer la cuenta recién creada.
-        await cred.user.delete().catch(() => undefined);
-        throw err;
+      await signInWithPopup(auth(), provider);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      // Si el navegador bloquea la ventana emergente, usar redirección.
+      if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+        await signInWithRedirect(auth(), provider);
+        return;
       }
-      setState(await checkAccess(cred.user));
-    } finally {
-      busySetup.current = false;
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return;
+      throw err;
     }
   }, []);
 
@@ -125,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fbSignOut(auth());
   }, []);
 
-  return <AuthContext.Provider value={{ state, signIn, setup, signOut }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ state, signInUser, signInAdmin, signOut }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {
@@ -134,9 +137,9 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
-/** Atajo para pantallas protegidas: devuelve el usuario autorizado y su rol. */
+/** Atajo para pantallas protegidas: usuario autorizado y si es administrador. */
 export function useAllowedUser() {
   const { state } = useAuth();
   if (state.status !== "allowed") throw new Error("useAllowedUser requiere un usuario autorizado");
-  return { user: state.user, username: state.username, role: state.role, isAdmin: state.role === "admin" };
+  return { user: state.user, username: state.username, isAdmin: state.kind === "admin", ownGroupId: state.groupId };
 }

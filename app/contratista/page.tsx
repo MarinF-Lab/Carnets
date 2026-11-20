@@ -33,7 +33,12 @@ function ContractorView({ id }: { id: string }) {
   const [zip, setZip] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => watchContractor(id, setContractor, () => setError("No se pudo cargar el contratista.")), [id]);
-  useEffect(() => watchCards(id, setCards, () => setError("No se pudieron cargar los carnets.")), [id]);
+  const contractorGroup = contractor?.groupId ?? null;
+  const loaded = contractor != null;
+  useEffect(() => {
+    if (!loaded) return;
+    return watchCards({ id, groupId: contractorGroup }, setCards, () => setError("No se pudieron cargar los carnets."));
+  }, [id, contractorGroup, loaded]);
 
   const filtered = useMemo(() => {
     const term = normalize(q);
@@ -93,9 +98,11 @@ function ContractorView({ id }: { id: string }) {
               <>
                 <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuOpen(false)} />
                 <div className="absolute top-12 right-0 z-20 w-60 overflow-hidden rounded-2xl bg-card py-1 shadow-xl ring-1 ring-line">
-                  <MenuItem icon={<Icon.edit />} onClick={() => { setMenuOpen(false); setDialog("rename"); }}>
-                    Renombrar
-                  </MenuItem>
+                  {isAdmin && (
+                    <MenuItem icon={<Icon.edit />} onClick={() => { setMenuOpen(false); setDialog("rename"); }}>
+                      Renombrar
+                    </MenuItem>
+                  )}
                   <MenuItem icon={<Icon.download />} onClick={downloadZip} disabled={!cards?.length}>
                     Descargar todo (ZIP)
                   </MenuItem>

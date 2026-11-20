@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAllowedUser } from "@/components/AuthProvider";
 import { ConfirmDialog } from "@/components/Dialog";
 import { btn, EmptyState, ErrorNote, Icon, PageHeader, Spinner } from "@/components/ui";
 import { deleteCard, getCard, getCardImages, getContractor, type Card, type CardImages } from "@/lib/db";
@@ -13,6 +14,7 @@ type Data = { card: Card; images: CardImages | null; contractorName: string };
 
 function CardView({ id }: { id: string }) {
   const router = useRouter();
+  const { isAdmin } = useAllowedUser();
   const [data, setData] = useState<Data | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"pdf" | "share" | null>(null);
@@ -116,16 +118,18 @@ function CardView({ id }: { id: string }) {
 
       {data && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/95 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
-          <div className="mx-auto grid max-w-3xl grid-cols-[1fr_1fr_auto] gap-2">
+          <div className={`mx-auto grid max-w-3xl gap-2 ${isAdmin ? "grid-cols-[1fr_1fr_auto]" : "grid-cols-2"}`}>
             <button type="button" className={btn.primary} onClick={onDownload} disabled={!data.images || busy !== null}>
               {busy === "pdf" ? <Spinner /> : <Icon.download />} PDF
             </button>
             <button type="button" className={btn.dark} onClick={onShare} disabled={!data.images || busy !== null}>
               {busy === "share" ? <Spinner /> : <Icon.share />} Compartir
             </button>
-            <button type="button" className={btn.danger} onClick={() => setConfirmDelete(true)} aria-label="Eliminar carnet">
-              <Icon.trash />
-            </button>
+            {isAdmin && (
+              <button type="button" className={btn.danger} onClick={() => setConfirmDelete(true)} aria-label="Eliminar carnet">
+                <Icon.trash />
+              </button>
+            )}
           </div>
         </div>
       )}

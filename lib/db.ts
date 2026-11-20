@@ -18,6 +18,7 @@ import { db } from "./firebase";
 
 export type Contractor = {
   id: string;
+  groupId: string | null;
   name: string;
   cardCount: number;
   createdAt: Date | null;
@@ -25,6 +26,7 @@ export type Contractor = {
 
 export type Card = {
   id: string;
+  groupId: string | null;
   contractorId: string;
   name: string;
   rut: string | null;
@@ -48,6 +50,7 @@ function toContractor(s: QueryDocumentSnapshot | DocumentSnapshot): Contractor {
   const d = s.data({ serverTimestamps: "estimate" }) ?? {};
   return {
     id: s.id,
+    groupId: d.groupId ? String(d.groupId) : null,
     name: String(d.name ?? ""),
     cardCount: Math.max(0, Number(d.cardCount ?? 0)),
     createdAt: toDate(d.createdAt),
@@ -58,6 +61,7 @@ function toCard(s: QueryDocumentSnapshot | DocumentSnapshot): Card {
   const d = s.data({ serverTimestamps: "estimate" }) ?? {};
   return {
     id: s.id,
+    groupId: d.groupId ? String(d.groupId) : null,
     contractorId: String(d.contractorId ?? ""),
     name: String(d.name ?? ""),
     rut: d.rut ? String(d.rut) : null,
@@ -73,9 +77,14 @@ const byNewest = (a: Card, b: Card) => (b.createdAt?.getTime() ?? 0) - (a.create
 
 /* ---------- Contratistas ---------- */
 
-export function watchContractors(cb: (list: Contractor[]) => void, onError: (e: Error) => void): Unsubscribe {
+/** Contratistas de un grupo. */
+export function watchContractors(
+  groupId: string,
+  cb: (list: Contractor[]) => void,
+  onError: (e: Error) => void,
+): Unsubscribe {
   return onSnapshot(
-    contractorsCol(),
+    query(contractorsCol(), where("groupId", "==", groupId)),
     (snap) => cb(snap.docs.map(toContractor).sort(byName)),
     onError,
   );
@@ -94,10 +103,10 @@ export async function getContractor(id: string): Promise<Contractor | null> {
   return s.exists() ? toContractor(s) : null;
 }
 
-export async function createContractor(name: string, uid: string): Promise<string> {
+export async function createContractor(name: string, uid: string, groupId: string): Promise<string> {
   const ref = doc(contractorsCol());
   const batch = writeBatch(db());
-  batch.set(ref, { name: name.trim(), cardCount: 0, createdAt: serverTimestamp(), createdBy: uid });
+  batch.set(ref, { groupId, name: name.trim(), cardCount: 0, createdAt: serverTimestamp(), createdBy: uid });
   await batch.commit();
   return ref.id;
 }
@@ -111,6 +120,7 @@ export async function renameContractor(id: string, name: string): Promise<void> 
 /** Elimina el contratista con todos sus carnets e imágenes (solo admin). */
 export async function deleteContractor(id: string): Promise<void> {
   const cards = await getDocs(query(cardsCol(), where("contractorId", "==", id)));
+  allCardsCache.clear();
   // Máximo 500 operaciones por lote: 2 por carnet.
   for (let i = 0; i < cards.docs.length; i += 200) {
     const batch = writeBatch(db());
@@ -128,32 +138,44 @@ export async function deleteContractor(id: string): Promise<void> {
 /* ---------- Carnets ---------- */
 
 /** Lista los carnets de un contratista (solo documentos livianos, nunca images). */
-export function watchCards(contractorId: string, cb: (list: Card[]) => void, onError: (e: Error) => void): Unsubscribe {
-  return onSnapshot(
-    query(cardsCol(), where("contractorId", "==", contractorId)),
+export function watchCards(
+  contractor: Pick<Contractor, "id" | "groupId">,
+  cb: (list: Card[]) => void,
+  onError: (e: Error) => void,
+): Unsubscribe {
+  return onSnapshot(cardsQuery(contractor),
     (snap) => cb(snap.docs.map(toCard).sort(byNewest)),
     onError,
   );
 }
 
-export async function listCards(contractorId: string): Promise<Card[]> {
-  const snap = await getDocs(query(cardsCol(), where("contractorId", "==", contractorId)));
+/** Consulta de carnets de un contratista. Incluye el grupo para cumplir las reglas. */
+function cardsQuery(contractor: Pick<Contractor, "id" | "groupId">) {
+  return contractor.groupId
+    ? query(cardsCol(), where("contractorId", "==", contractor.id), where("groupId", "==", contractor.groupId))
+    : query(cardsCol(), where("contractorId", "==", contractor.id));
+}
+
+export async function listCards(contractor: Pick<Contractor, "id" | "groupId">): Promise<Card[]> {
+  const snap = await getDocs(cardsQuery(contractor));
   return snap.docs.map(toCard).sort(byNewest);
 }
 
-let allCardsCache: Promise<Card[]> | null = null;
+const allCardsCache = new Map<string, Promise<Card[]>>();
 
-/** Todos los carnets (livianos), para el buscador de inicio. Se cachea por sesión. */
-export function getAllCards(refresh = false): Promise<Card[]> {
-  if (refresh || !allCardsCache) {
-    allCardsCache = getDocs(cardsCol())
+/** Todos los carnets (livianos) de un grupo, para el buscador de inicio. Se cachea por sesión. */
+export function getAllCards(groupId: string): Promise<Card[]> {
+  let p = allCardsCache.get(groupId);
+  if (!p) {
+    p = getDocs(query(cardsCol(), where("groupId", "==", groupId)))
       .then((s) => s.docs.map(toCard).sort(byName))
       .catch((e) => {
-        allCardsCache = null;
+        allCardsCache.delete(groupId);
         throw e;
       });
+    allCardsCache.set(groupId, p);
   }
-  return allCardsCache;
+  return p;
 }
 
 export async function getCard(id: string): Promise<Card | null> {
@@ -170,6 +192,7 @@ export async function getCardImages(id: string): Promise<CardImages | null> {
 
 /** Guarda el carnet liviano + images/main en una sola escritura por lotes. */
 export async function saveCard(input: {
+  groupId: string;
   contractorId: string;
   name: string;
   rut: string | null;
@@ -181,6 +204,7 @@ export async function saveCard(input: {
   const ref = doc(cardsCol());
   const batch = writeBatch(db());
   batch.set(ref, {
+    groupId: input.groupId,
     contractorId: input.contractorId,
     name: input.name.trim(),
     rut: input.rut,
@@ -192,7 +216,7 @@ export async function saveCard(input: {
   batch.set(imagesDoc(ref.id), { front: input.images.front, back: input.images.back });
   batch.update(doc(contractorsCol(), input.contractorId), { cardCount: increment(1) });
   await batch.commit();
-  allCardsCache = null;
+  allCardsCache.delete(input.groupId);
   return ref.id;
 }
 
@@ -203,5 +227,31 @@ export async function deleteCard(card: Pick<Card, "id" | "contractorId">): Promi
   batch.delete(doc(cardsCol(), card.id));
   batch.update(doc(contractorsCol(), card.contractorId), { cardCount: increment(-1) });
   await batch.commit();
-  allCardsCache = null;
+  allCardsCache.clear();
+}
+
+/* ---------- Datos sin grupo (anteriores a los grupos) ---------- */
+
+/** Contratistas sin grupo (solo admin). */
+export async function listUngroupedContractors(): Promise<Contractor[]> {
+  const snap = await getDocs(contractorsCol());
+  return snap.docs.map(toContractor).filter((c) => !c.groupId);
+}
+
+/** Asigna a un grupo todos los contratistas sin grupo y sus carnets (solo admin). */
+export async function assignUngroupedTo(groupId: string): Promise<number> {
+  const contractors = await listUngroupedContractors();
+  const ops: { ref: ReturnType<typeof doc> }[] = [];
+  for (const c of contractors) {
+    ops.push({ ref: doc(contractorsCol(), c.id) });
+    const cards = await getDocs(query(cardsCol(), where("contractorId", "==", c.id)));
+    cards.docs.forEach((d) => ops.push({ ref: d.ref }));
+  }
+  for (let i = 0; i < ops.length; i += 400) {
+    const batch = writeBatch(db());
+    ops.slice(i, i + 400).forEach((o) => batch.update(o.ref, { groupId }));
+    await batch.commit();
+  }
+  allCardsCache.clear();
+  return contractors.length;
 }
