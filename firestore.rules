@@ -1,0 +1,51 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function allowedPath() {
+      return /databases/$(database)/documents/allowedUsers/$(request.auth.token.email);
+    }
+
+    // Usuario con sesión iniciada y presente en la lista blanca.
+    function allowed() {
+      return signedIn() && exists(allowedPath());
+    }
+
+    function isAdmin() {
+      return allowed() && get(allowedPath()).data.role == 'admin';
+    }
+
+    // Lista blanca: cada usuario solo puede leer su propio registro.
+    // Se edita únicamente desde la consola de Firebase.
+    match /allowedUsers/{email} {
+      allow read: if signedIn() && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    // Solo un admin puede eliminar contratistas.
+    match /contractors/{contractorId} {
+      allow read, create, update: if allowed();
+      allow delete: if isAdmin();
+    }
+
+    match /cards/{cardId} {
+      allow read, write: if allowed();
+
+      match /images/{imageId} {
+        allow read, write: if allowed();
+      }
+    }
+
+    // Todo lo demás, denegado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
