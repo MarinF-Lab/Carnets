@@ -121,6 +121,8 @@ admins/{email}                       // correos de Google autorizados como admin
 
 **Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
 
+**Ajuste automático** (`lib/cardfit.ts`, activable en Configuración): se captura el marco con un 8 % de margen; se detectan los 4 bordes del carnet (puntos de borde por lado + recta robusta RANSAC), se calculan las esquinas, se endereza con una homografía a un rectángulo exacto 85,6 × 54 (máx. 1800 px) y se pintan de blanco las esquinas redondeadas (radio 3,18 mm). Si no se detecta con seguridad (proporción, tamaño, contraste), se recorta exactamente al marco. También se aplica a las fotos de la galería.
+
 **Flujo rápido**: la captura automática viene activada; al capturar el frontal empieza su lectura (mientras se da vuelta el carnet). La captura automática del reverso exige que el carnet salga del marco ~1 s, 2,5 s desde la captura anterior y que la imagen sea **distinta** del lado ya capturado (huella `signature`/`FLIP_DIFF` en `lib/align.ts`), para no repetir el mismo lado. El **guardado rápido** (guarda solo tras 2 s si se leyó nombre y RUT válido) está **desactivado por defecto**; se activa en Configuración. Botones **"Guardar y escanear otro"** (vuelve a la cámara, sin capturar el carnet anterior hasta que salga del marco) y **"Guardar y terminar"**.
 
 **Enfoque** (`lib/camera.ts`): el marco ocupa el 72 % del ancho para que el celular quede a una distancia en que puede enfocar; se pide resolución 4K. Se elige la cámara trasera principal (no gran angular/tele) y se activa el enfoque continuo. Donde el navegador lo permite (Chrome en Android): **toque para enfocar**, **zoom** y botón para **cambiar de cámara** (se recuerda la elegida). En iPhone el sistema enfoca solo.
@@ -130,7 +132,7 @@ admins/{email}                       // correos de Google autorizados como admin
 - Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin). Solo los admins ven quién lo registró y quién lo editó por última vez.
 
 ### 5.5 Configuración
-- Captura automática, lectura automática y guardado rápido (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
+- Captura automática, ajuste automático del carnet, lectura automática y guardado rápido (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
 - Cuenta y cerrar sesión. Solo admin: grupos, datos sin grupo, usuarios y administradores.
 
 ## 6. Lectura automática

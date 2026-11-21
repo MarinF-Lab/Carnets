@@ -11,11 +11,13 @@ export type Settings = {
   autoRead: boolean;
   /** Si la lectura salió completa, guarda solo tras 2 s (con opción de corregir). */
   quickSave: boolean;
+  /** Detecta el carnet, lo endereza y deja las esquinas redondeadas. */
+  autoFit: boolean;
   theme: Theme;
 };
 
 const KEY = "carnets.settings";
-const DEFAULTS: Settings = { autoCapture: true, autoRead: true, quickSave: false, theme: "system" };
+const DEFAULTS: Settings = { autoCapture: true, autoRead: true, quickSave: false, autoFit: true, theme: "system" };
 /** Versión de las preferencias: al subirla se descartan valores por defecto antiguos. */
 const VERSION = 2;
 const listeners = new Set<() => void>();

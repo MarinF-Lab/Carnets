@@ -84,6 +84,12 @@ export default function SettingsPage() {
           onChange={(v) => updateSettings({ autoCapture: v })}
         />
         <Toggle
+          label="Ajuste automático del carnet"
+          description="Detecta el carnet, lo endereza y deja las esquinas redondeadas."
+          checked={settings.autoFit}
+          onChange={(v) => updateSettings({ autoFit: v })}
+        />
+        <Toggle
           label="Lectura automática"
           description="Rellena el nombre y el RUT desde las fotos."
           checked={settings.autoRead}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { analyzeAlignment, FLIP_DIFF, frameRect as baseFrameRect, innerGray, SAMPLE_MARGIN, signature, signatureDiff, toGray } from "@/lib/align";
 import { focusAt, openBackCamera, setZoom, type CameraInfo } from "@/lib/camera";
+import { FIT_MARGIN, fitOrCrop } from "@/lib/cardfit";
 import { cropVideo, fileToCanvas, makeCanvas } from "@/lib/image";
 import { useSettings } from "@/lib/settings";
 import { useSync } from "@/lib/sync";
@@ -46,7 +47,7 @@ function videoRect(v: HTMLVideoElement, cw: number, ch: number, r: { x: number; 
 
 /** Cámara en vivo a pantalla completa con marco de carnet y respaldo de galería. */
 export function CameraCapture({ title, subtitle, startDisarmed = false, onCapture, onClose }: Props) {
-  const { autoCapture } = useSettings();
+  const { autoCapture, autoFit } = useSettings();
   const { pending } = useSync();
 
   // Marcar que la cámara está abierta (oculta el aviso flotante de sincronización).
@@ -148,10 +149,20 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
     const el = boxRef.current;
     if (!v || !el || !v.videoWidth) return;
     const f = frameRect(el.clientWidth, el.clientHeight);
+    // Capturar el marco con un margen alrededor, para ver los bordes del carnet.
     const r = videoRect(v, el.clientWidth, el.clientHeight, { x: f.fx, y: f.fy, w: f.fw, h: f.fh });
-    const sx = Math.max(0, r.sx);
-    const sy = Math.max(0, r.sy);
-    const canvas = cropVideo(v, sx, sy, Math.min(v.videoWidth - sx, r.sw), Math.min(v.videoHeight - sy, r.sh));
+    const mx = r.sw * FIT_MARGIN;
+    const my = r.sh * FIT_MARGIN;
+    const ex0 = Math.max(0, r.sx - mx);
+    const ey0 = Math.max(0, r.sy - my);
+    const ex1 = Math.min(v.videoWidth, r.sx + r.sw + mx);
+    const ey1 = Math.min(v.videoHeight, r.sy + r.sh + my);
+    const expanded = cropVideo(v, ex0, ey0, ex1 - ex0, ey1 - ey0);
+    const ix = Math.max(0, r.sx - ex0);
+    const iy = Math.max(0, r.sy - ey0);
+    const inner = { x: ix, y: iy, w: Math.min(r.sw, expanded.width - ix), h: Math.min(r.sh, expanded.height - iy) };
+    // Carnet enderezado con esquinas redondeadas, o recorte exacto al marco.
+    const canvas = fitOrCrop(expanded, inner, autoFit);
     // Recordar cómo se veía este lado: la siguiente captura automática exige otro lado.
     auto.current.lastSig = auto.current.sig;
     auto.current.lastShot = performance.now();
@@ -159,7 +170,7 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
     onCapture(canvas);
-  }, [onCapture]);
+  }, [onCapture, autoFit]);
 
   // Revisión continua del encuadre (~8 veces por segundo).
   const captureRef = useRef(capture);
@@ -380,9 +391,10 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
           source={cropSource}
           title={title}
           onCancel={() => setCropSource(null)}
-          onDone={(canvas) => {
+          margin={FIT_MARGIN}
+          onDone={(expanded, inner) => {
             setCropSource(null);
-            onCapture(canvas);
+            onCapture(fitOrCrop(expanded, inner, autoFit));
           }}
         />
       )}

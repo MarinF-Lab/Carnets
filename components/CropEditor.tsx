@@ -14,12 +14,16 @@ type View = { scale: number; tx: number; ty: number };
 export function CropEditor({
   source,
   title,
+  margin = 0,
   onDone,
   onCancel,
 }: {
   source: HTMLCanvasElement;
   title: string;
-  onDone: (canvas: HTMLCanvasElement) => void;
+  /** Margen extra (fracción del marco) que se entrega alrededor del encuadre. */
+  margin?: number;
+  /** Entrega la foto con margen y el rectángulo del marco dentro de ella. */
+  onDone: (expanded: HTMLCanvasElement, inner: { x: number; y: number; w: number; h: number }) => void;
   onCancel: () => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -136,10 +140,17 @@ export function CropEditor({
   function confirm() {
     if (!current) return;
     const { fx, fy, fw, fh } = frame;
-    const sx = (fx - current.tx) / current.scale;
-    const sy = (fy - current.ty) / current.scale;
-    const sw = fw / current.scale;
-    const sh = fh / current.scale;
+    // Marco + margen alrededor (en la foto original), recortado a los límites de la foto.
+    const mx = (fw * margin) / current.scale;
+    const my = (fh * margin) / current.scale;
+    const fsx = (fx - current.tx) / current.scale;
+    const fsy = (fy - current.ty) / current.scale;
+    const fsw = fw / current.scale;
+    const fsh = fh / current.scale;
+    const sx = Math.max(0, fsx - mx);
+    const sy = Math.max(0, fsy - my);
+    const sw = Math.min(img.width, fsx + fsw + mx) - sx;
+    const sh = Math.min(img.height, fsy + fsh + my) - sy;
     // Resolución original, limitada a 2400 px.
     const k = Math.min(1, 2400 / Math.max(sw, sh));
     const out = makeCanvas(sw * k, sh * k);
@@ -148,7 +159,7 @@ export function CropEditor({
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, out.width, out.height);
-    onDone(out);
+    onDone(out, { x: (fsx - sx) * k, y: (fsy - sy) * k, w: fsw * k, h: fsh * k });
   }
 
   // Control deslizante logarítmico (0–100).
