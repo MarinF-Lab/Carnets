@@ -32,6 +32,11 @@ export function uniqueName(name: string, used: Set<string>): string {
   }
 }
 
+/** Tamaño de cada lado en el PDF (mm): algo mayor que el carnet real (85,6 × 54). */
+const CARD_W = 96;
+const CARD_H = 60.6;
+const GAP = 10;
+
 export async function buildPdf(
   card: Pick<Card, "name" | "rut" | "createdAt">,
   images: CardImages,
@@ -40,46 +45,31 @@ export async function buildPdf(
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   const W = 210;
-  const H = 297;
   const M = 15;
   const contentW = W - 2 * M;
 
   pdf.setProperties({ title: card.name, subject: `Carnet - ${contractorName}` });
 
-  // Encabezado
+  // Encabezado: solo contratista, RUT y fecha (el nombre ya está en el archivo y en las fotos).
   pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(16);
-  pdf.text(pdf.splitTextToSize(card.name, contentW)[0] ?? "", M, M + 6);
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(10);
-  pdf.setTextColor(90);
+  pdf.setFontSize(13);
+  pdf.setTextColor(40);
   const meta = `Contratista: ${contractorName} · RUT: ${card.rut ?? "—"} · Fecha: ${formatDate(card.createdAt)}`;
-  pdf.text(pdf.splitTextToSize(meta, contentW)[0] ?? "", M, M + 12);
+  pdf.text(pdf.splitTextToSize(meta, contentW)[0] ?? "", M, M + 5);
   pdf.setDrawColor(200);
-  pdf.line(M, M + 16, W - M, M + 16);
+  pdf.line(M, M + 9, W - M, M + 9);
 
-  // Frontal arriba, trasero abajo
-  const top = M + 22;
-  const halfH = (H - M - top) / 2;
-  const sides: [string, string][] = [
-    ["Lado frontal", images.front],
-    ["Lado trasero", images.back],
-  ];
-  sides.forEach(([label, data], i) => {
-    const y0 = top + i * halfH;
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(10);
-    pdf.setTextColor(60);
-    pdf.text(label, M, y0 + 4);
-    if (!data) return;
+  // Ambos lados a tamaño parecido al carnet real, centrados y uno debajo del otro.
+  let y = M + 17;
+  for (const data of [images.front, images.back]) {
+    if (!data) continue;
     const props = pdf.getImageProperties(data);
-    const boxW = contentW;
-    const boxH = halfH - 12;
-    const scale = Math.min(boxW / props.width, boxH / props.height);
+    const scale = Math.min(CARD_W / props.width, CARD_H / props.height);
     const w = props.width * scale;
     const h = props.height * scale;
-    pdf.addImage(data, "JPEG", M + (boxW - w) / 2, y0 + 7, w, h, undefined, "FAST");
-  });
+    pdf.addImage(data, "JPEG", (W - w) / 2, y, w, h, undefined, "FAST");
+    y += h + GAP;
+  }
 
   return pdf.output("blob");
 }

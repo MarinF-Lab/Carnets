@@ -155,8 +155,8 @@ Ejecutar en este orden y quedarse con el primer resultado válido de cada dato:
 
 - Función `buildPdf(card, images, contractorName) => Blob` en `lib/pdf.ts`.
 - Hoja A4 vertical, márgenes de 15 mm.
-- Encabezado: **nombre** en negrita, y debajo `Contratista: X · RUT: Y · Fecha: dd-mm-aaaa` (la fecha del escaneo).
-- **Lado frontal** en la mitad superior y **lado trasero** en la inferior, cada uno con su etiqueta y respetando la proporción.
+- Encabezado de una línea, en negrita y 13 pt: `Contratista: X · RUT: Y · Fecha: dd-mm-aaaa` (la fecha del escaneo). Sin el nombre: ya está en el archivo y en las fotos.
+- **Lado frontal** y debajo el **lado trasero**, centrados y sin etiquetas, a tamaño parecido al carnet real (máximo **96 × 60,6 mm** cada uno, 10 mm entre ambos), respetando la proporción.
 - Nombre del archivo: `Nombre Apellido - Contratista.pdf`, sin los caracteres `\ / : * ? " < > |`.
 - ZIP: generar los PDFs uno por uno (leyendo cada `images/main`) y empaquetarlos en `Contratista.zip`. Mostrar el progreso ("3 de 12…"). Si dos archivos tienen el mismo nombre, agregar `(2)`, `(3)`, etc.
 
