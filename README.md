@@ -6,7 +6,7 @@ App web para escanear carnets de trabajadores, organizados por contratista. Se i
 - Configuración de Firebase: [`docs/CONFIGURAR-FIREBASE.md`](docs/CONFIGURAR-FIREBASE.md)
 
 ## Acceso
-- **Usuario**: entra con su usuario y la **contraseña de su grupo**. La primera vez se registra solo (la app pregunta en qué grupo crearlo según la contraseña). Los usuarios del mismo grupo comparten datos; solo pueden agregar (no renombrar ni eliminar).
+- **Usuario**: entra con su usuario y la **contraseña de su grupo**. La primera vez se registra solo (la app pregunta en qué grupo crearlo según la contraseña). Los usuarios del mismo grupo comparten datos; pueden agregar y editar, pero no eliminar.
 - **Administrador**: entra con **Google** (correos autorizados). Crea grupos y sus contraseñas, desactiva o cambia de grupo a usuarios, autoriza otros administradores y ve todos los grupos.
 
 ## Desarrollo

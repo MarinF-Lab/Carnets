@@ -100,18 +100,25 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ---------- Datos: los usuarios solo agregan; editar y eliminar es de admins ----------
+    // ---------- Datos: los usuarios agregan y editan; eliminar es solo de admins ----------
 
     match /contractors/{contractorId} {
       allow read: if inGroup(resource.data.get('groupId', null));
       allow create: if inGroup(request.resource.data.groupId)
         && request.resource.data.cardCount == 0;
       allow update: if isAdmin()
-        // Un usuario solo puede sumar 1 al contador al guardar un carnet.
         || (isMember()
             && resource.data.get('groupId', null) == me().groupId
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cardCount'])
-            && request.resource.data.cardCount == resource.data.get('cardCount', 0) + 1);
+            && (
+              // Sumar 1 al contador al guardar un carnet.
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cardCount'])
+                && request.resource.data.cardCount == resource.data.get('cardCount', 0) + 1)
+              // Renombrar.
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+                && request.resource.data.name is string
+                && request.resource.data.name.size() > 0
+                && request.resource.data.name.size() <= 80)
+            ));
       allow delete: if isAdmin();
     }
 
@@ -119,7 +126,15 @@ service cloud.firestore {
       allow read: if inGroup(resource.data.get('groupId', null));
       allow create: if inGroup(request.resource.data.groupId)
         && get(docPath('contractors', request.resource.data.contractorId)).data.get('groupId', null) == request.resource.data.groupId;
-      allow update, delete: if isAdmin();
+      // Un usuario puede corregir nombre y RUT; eliminar es solo de admins.
+      allow update: if isAdmin()
+        || (isMember()
+            && resource.data.get('groupId', null) == me().groupId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'rut', 'updatedAt', 'updatedByName'])
+            && request.resource.data.name is string
+            && request.resource.data.name.size() > 0
+            && (request.resource.data.rut == null || request.resource.data.rut is string));
+      allow delete: if isAdmin();
 
       match /images/{imageId} {
         allow read: if inGroup(get(docPath('cards', cardId)).data.get('groupId', null));

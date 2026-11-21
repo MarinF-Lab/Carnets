@@ -9,6 +9,7 @@ import { ConfirmDialog, ProgressDialog, PromptDialog } from "@/components/Dialog
 import { btn, EmptyState, ErrorNote, Icon, PageHeader, SearchBox, Spinner } from "@/components/ui";
 import {
   deleteContractor,
+  emptyContractor,
   getCardImages,
   renameContractor,
   watchCards,
@@ -28,7 +29,8 @@ function ContractorView({ id }: { id: string }) {
   const [cards, setCards] = useState<Card[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"rename" | "delete" | "empty" | null>(null);
+  const [emptying, setEmptying] = useState<{ done: number; total: number } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [zip, setZip] = useState<{ done: number; total: number } | null>(null);
 
@@ -98,14 +100,22 @@ function ContractorView({ id }: { id: string }) {
               <>
                 <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuOpen(false)} />
                 <div className="absolute top-12 right-0 z-20 w-60 overflow-hidden rounded-2xl bg-card py-1 shadow-xl ring-1 ring-line">
-                  {isAdmin && (
-                    <MenuItem icon={<Icon.edit />} onClick={() => { setMenuOpen(false); setDialog("rename"); }}>
-                      Renombrar
-                    </MenuItem>
-                  )}
+                  <MenuItem icon={<Icon.edit />} onClick={() => { setMenuOpen(false); setDialog("rename"); }}>
+                    Renombrar
+                  </MenuItem>
                   <MenuItem icon={<Icon.download />} onClick={downloadZip} disabled={!cards?.length}>
                     Descargar todo (ZIP)
                   </MenuItem>
+                  {isAdmin && (
+                    <MenuItem
+                      icon={<Icon.empty />}
+                      danger
+                      disabled={!cards?.length}
+                      onClick={() => { setMenuOpen(false); setDialog("empty"); }}
+                    >
+                      Vaciar carpeta
+                    </MenuItem>
+                  )}
                   {isAdmin && (
                     <MenuItem icon={<Icon.trash />} danger onClick={() => { setMenuOpen(false); setDialog("delete"); }}>
                       Eliminar contratista
@@ -175,6 +185,33 @@ function ContractorView({ id }: { id: string }) {
         />
       )}
 
+      {dialog === "empty" && contractor && (
+        <ConfirmDialog
+          title="Vaciar carpeta"
+          message={
+            <>
+              Se eliminarán los <strong className="text-ink">{cards?.length ?? 0} carnets</strong> de{" "}
+              <strong className="text-ink">{contractor.name}</strong>. La carpeta se mantiene. Esta acción no se puede
+              deshacer.
+            </>
+          }
+          confirmLabel="Vaciar"
+          danger
+          onClose={() => setDialog(null)}
+          onConfirm={async () => {
+            setDialog(null);
+            try {
+              await emptyContractor(contractor, (done, total) => setEmptying({ done, total }));
+            } catch {
+              alert("No se pudo vaciar la carpeta.");
+            } finally {
+              setEmptying(null);
+            }
+          }}
+        />
+      )}
+
+      {emptying && <ProgressDialog title="Vaciando carpeta" done={emptying.done} total={emptying.total} />}
       {zip && <ProgressDialog title="Preparando ZIP" done={zip.done} total={zip.total} />}
     </div>
   );

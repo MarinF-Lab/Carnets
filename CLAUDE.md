@@ -92,7 +92,7 @@ admins/{email}                       // correos de Google autorizados como admin
   - **Administrador**: **Google**, solo correos autorizados en `admins/{email}`.
 - **Grupos**: cada grupo tiene su contraseña; los usuarios del mismo grupo comparten datos y no ven los de otros grupos. Los admins ven todos los grupos (selector en Inicio).
 - Los admins, en **Configuración**: crean grupos y ven/cambian su contraseña (la app actualiza la de todos sus usuarios y su clave), desactivan o cambian de grupo usuarios y autorizan otros correos como admin. Dos grupos no pueden tener la misma contraseña.
-- **Usuarios solo agregan**: crean contratistas y escanean carnets. Renombrar y eliminar es solo de admins.
+- **Usuarios agregan y editan**: crean contratistas, escanean carnets, renombran contratistas y corrigen nombre/RUT de un carnet. **Eliminar es solo de admins** (eliminar carnet, vaciar carpeta, eliminar contratista).
 - **Reglas de Firestore** (`firestore.rules`): todo dato se filtra por `groupId`; `groupSecrets` y `admins` solo para admins; un admin no puede quitarse a sí mismo.
 - Al eliminar un carnet, borrar también `images/main`. Al eliminar un contratista, borrar todos sus carnets y sus imágenes.
 
@@ -104,8 +104,8 @@ admins/{email}                       // correos de Google autorizados como admin
 - Buscador que encuentre contratistas y también trabajadores dentro de ellos.
 
 ### 5.2 Carpeta de un contratista
-- Título con el nombre y acciones: **Renombrar**, **Descargar todo (ZIP)** y **Eliminar** (solo admin, con confirmación).
-- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila.
+- Título con el nombre y acciones: **Renombrar**, **Descargar todo (ZIP)**, **Vaciar carpeta** (borra todos sus carnets, la carpeta queda; solo admin) y **Eliminar** (solo admin). Todo lo que borra pide confirmación.
+- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila y, para admins, **papelera** para eliminar el carnet.
 - Buscador por nombre o RUT.
 - Botón flotante **"+ Escanear carnet"**.
 
@@ -122,7 +122,7 @@ admins/{email}                       // correos de Google autorizados como admin
 
 ### 5.4 Detalle de un carnet
 - Lee `images/main` y muestra ambos lados en grande, junto al nombre del archivo.
-- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. También **Eliminar**.
+- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin).
 
 ### 5.5 Configuración
 - Captura automática y lectura automática (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.

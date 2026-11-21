@@ -1,6 +1,7 @@
 /** Acceso a Firestore según la sección 3 de CLAUDE.md. */
 import {
   collection,
+  updateDoc,
   doc,
   getDoc,
   getDocs,
@@ -218,6 +219,41 @@ export async function saveCard(input: {
   await batch.commit();
   allCardsCache.delete(input.groupId);
   return ref.id;
+}
+
+/** Corrige el nombre y el RUT de un carnet (usuarios del grupo y admins). */
+export async function updateCard(id: string, data: { name: string; rut: string | null }, username: string): Promise<void> {
+  await updateDoc(doc(cardsCol(), id), {
+    name: data.name.trim(),
+    rut: data.rut,
+    updatedAt: serverTimestamp(),
+    updatedByName: username,
+  });
+  allCardsCache.clear();
+}
+
+/** Vacía la carpeta: borra todos los carnets e imágenes del contratista (solo admin). */
+export async function emptyContractor(
+  contractor: Pick<Contractor, "id" | "groupId">,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const cards = await getDocs(cardsQuery(contractor));
+  const total = cards.docs.length;
+  onProgress?.(0, total);
+  // Máximo 500 operaciones por lote: 2 por carnet.
+  for (let i = 0; i < total; i += 200) {
+    const batch = writeBatch(db());
+    for (const c of cards.docs.slice(i, i + 200)) {
+      batch.delete(imagesDoc(c.id));
+      batch.delete(c.ref);
+    }
+    await batch.commit();
+    onProgress?.(Math.min(i + 200, total), total);
+  }
+  const batch = writeBatch(db());
+  batch.update(doc(contractorsCol(), contractor.id), { cardCount: 0 });
+  await batch.commit();
+  allCardsCache.clear();
 }
 
 /** Elimina el carnet y su images/main. */

@@ -1,20 +1,22 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAllowedUser } from "@/components/AuthProvider";
-import { ConfirmDialog } from "@/components/Dialog";
-import { btn, EmptyState, ErrorNote, Icon, PageHeader, Spinner } from "@/components/ui";
-import { deleteCard, getCard, getCardImages, getContractor, type Card, type CardImages } from "@/lib/db";
+import { ConfirmDialog, Sheet } from "@/components/Dialog";
+import { btn, EmptyState, ErrorNote, Icon, input, PageHeader, Spinner } from "@/components/ui";
+import { deleteCard, getCard, getCardImages, getContractor, updateCard, type Card, type CardImages } from "@/lib/db";
 import { downloadBlob, shareOrDownload } from "@/lib/files";
 import { buildPdf, pdfFileName } from "@/lib/pdf";
+import { formatRut, isValidRut } from "@/lib/rut";
 import { formatDate } from "@/lib/text";
 
 type Data = { card: Card; images: CardImages | null; contractorName: string };
 
 function CardView({ id }: { id: string }) {
   const router = useRouter();
-  const { isAdmin } = useAllowedUser();
+  const { isAdmin, username } = useAllowedUser();
+  const [editing, setEditing] = useState(false);
   const [data, setData] = useState<Data | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"pdf" | "share" | null>(null);
@@ -78,6 +80,13 @@ function CardView({ id }: { id: string }) {
         title={data?.card.name ?? "…"}
         subtitle={data ? [data.contractorName, data.card.rut, formatDate(data.card.createdAt)].filter(Boolean).join(" · ") : " "}
         backHref={backHref}
+        actions={
+          data && (
+            <button type="button" className={btn.ghost} onClick={() => setEditing(true)} aria-label="Editar datos">
+              <Icon.edit />
+            </button>
+          )
+        }
       />
 
       {error && <div className="mb-4"><ErrorNote>{error}</ErrorNote></div>}
@@ -134,6 +143,18 @@ function CardView({ id }: { id: string }) {
         </div>
       )}
 
+      {editing && data && (
+        <EditCardDialog
+          card={data.card}
+          onClose={() => setEditing(false)}
+          onSave={async (name, rut) => {
+            await updateCard(data.card.id, { name, rut }, username);
+            setData({ ...data, card: { ...data.card, name: name.trim(), rut } });
+            setEditing(false);
+          }}
+        />
+      )}
+
       {confirmDelete && data && (
         <ConfirmDialog
           title="Eliminar carnet"
@@ -152,6 +173,68 @@ function CardView({ id }: { id: string }) {
         />
       )}
     </div>
+  );
+}
+
+function EditCardDialog({
+  card,
+  onClose,
+  onSave,
+}: {
+  card: Card;
+  onClose: () => void;
+  onSave: (name: string, rut: string | null) => Promise<void>;
+}) {
+  const [name, setName] = useState(card.name);
+  const [rut, setRut] = useState(card.rut ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const rutInvalid = rut.trim().length > 0 && !isValidRut(rut);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(name, rut.trim() ? formatRut(rut) : null);
+    } catch {
+      setError("No se pudo guardar. Inténtalo de nuevo.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={busy ? () => {} : onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="text-xl font-bold">Editar datos</h2>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-muted">Nombre</span>
+          <input className={input} value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="words" autoFocus required />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-muted">RUT</span>
+          <input
+            className={`${input} ${rutInvalid ? "border-accent" : ""}`}
+            value={rut}
+            onChange={(e) => setRut(e.target.value)}
+            onBlur={() => rut.trim() && setRut(formatRut(rut))}
+            placeholder="12.345.678-5"
+            aria-invalid={rutInvalid}
+          />
+          {rutInvalid && <span className="mt-1.5 block text-sm text-accent">El dígito verificador no coincide. Revisa el RUT.</span>}
+        </label>
+        {error && <p className="text-sm text-accent">{error}</p>}
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <button type="button" className={btn.secondary} onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="submit" className={btn.primary} disabled={busy || !name.trim()}>
+            {busy ? <Spinner /> : "Guardar"}
+          </button>
+        </div>
+      </form>
+    </Sheet>
   );
 }
 
