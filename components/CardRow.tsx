@@ -6,6 +6,7 @@ import type { Card } from "@/lib/db";
 import { deleteCard, getCardImages } from "@/lib/db";
 import { useAllowedUser } from "./AuthProvider";
 import { ConfirmDialog } from "./Dialog";
+import { useRegisteredBy } from "./useRegisteredBy";
 import { downloadBlob } from "@/lib/files";
 import { buildPdf, pdfFileName } from "@/lib/pdf";
 import { formatDate } from "@/lib/text";
@@ -14,6 +15,7 @@ import { btn, Icon, Spinner } from "./ui";
 /** Fila de un trabajador: miniatura, nombre, RUT, fecha y botón PDF. */
 export function CardRow({ card, contractorName, subtitle }: { card: Card; contractorName: string; subtitle?: string }) {
   const { isAdmin } = useAllowedUser();
+  const registeredBy = useRegisteredBy();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -45,6 +47,7 @@ export function CardRow({ card, contractorName, subtitle }: { card: Card; contra
           <p className="truncate text-sm text-muted">
             {subtitle ?? [card.rut ?? "Sin RUT", formatDate(card.createdAt)].filter(Boolean).join(" · ")}
           </p>
+          {registeredBy && <p className="truncate text-xs text-muted">Registrado por {registeredBy(card)}</p>}
         </div>
       </Link>
       <button type="button" onClick={downloadPdf} disabled={busy} className={`${btn.secondary} shrink-0 px-3 text-sm`}>

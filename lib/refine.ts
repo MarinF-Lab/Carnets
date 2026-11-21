@@ -70,9 +70,12 @@ export function detectCardEdges(gray: Uint8ClampedArray | Uint8Array, w: number,
   };
 }
 
-/** Recorte hacia adentro del borde detectado, y recorte fijo si no se detecta. */
-const INSET = 0.015;
-const FALLBACK = 0.025;
+/**
+ * Recorte hacia adentro del borde detectado y recorte fijo si no se detecta,
+ * como fracción del ANCHO (la misma distancia en mm arriba, abajo y a los lados).
+ */
+const INSET = 0.005;
+const FALLBACK = 0.01;
 /** Radio de las esquinas del carnet (3,2 mm sobre 85,6 mm de ancho). */
 const CORNER = 0.037;
 
@@ -85,10 +88,12 @@ export function cropBox(input: Edges, w: number, h: number): CropBox {
   const edges = { ...input };
   if ((edges.left == null) !== (edges.right == null)) edges.left = edges.right = null;
   if ((edges.top == null) !== (edges.bottom == null)) edges.top = edges.bottom = null;
-  let x0 = edges.left != null ? edges.left / w + INSET : FALLBACK;
-  let x1 = edges.right != null ? edges.right / w - INSET : 1 - FALLBACK;
-  let y0 = edges.top != null ? edges.top / h + INSET * 1.585 : FALLBACK * 1.585;
-  let y1 = edges.bottom != null ? edges.bottom / h - INSET * 1.585 : 1 - FALLBACK * 1.585;
+  const k = w / h; // pasar una fracción del ancho a fracción del alto
+  // +1 px: el borde detectado es la transición; el carnet empieza justo después.
+  let x0 = edges.left != null ? (edges.left + 1) / w + INSET : FALLBACK;
+  let x1 = edges.right != null ? (edges.right - 1) / w - INSET : 1 - FALLBACK;
+  let y0 = edges.top != null ? (edges.top + 1) / h + INSET * k : FALLBACK * k;
+  let y1 = edges.bottom != null ? (edges.bottom - 1) / h - INSET * k : 1 - FALLBACK * k;
   // Sensatez: el carnet debe ocupar la mayor parte y tener una proporción razonable.
   const cw = (x1 - x0) * w;
   const ch = (y1 - y0) * h;
@@ -96,8 +101,8 @@ export function cropBox(input: Edges, w: number, h: number): CropBox {
   if (x1 - x0 < 0.6 || y1 - y0 < 0.6 || ratio < 1.3 || ratio > 1.9) {
     x0 = FALLBACK;
     x1 = 1 - FALLBACK;
-    y0 = FALLBACK * 1.585;
-    y1 = 1 - FALLBACK * 1.585;
+    y0 = FALLBACK * k;
+    y1 = 1 - FALLBACK * k;
   }
   return { x0, y0, x1, y1 };
 }

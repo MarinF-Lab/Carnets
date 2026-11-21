@@ -105,7 +105,7 @@ admins/{email}                       // correos de Google autorizados como admin
 
 ### 5.2 Carpeta de un contratista
 - Título con el nombre y acciones: **Renombrar**, **Descargar todo (ZIP)**, **Vaciar carpeta** (borra todos sus carnets, la carpeta queda; solo admin) y **Eliminar** (solo admin). Todo lo que borra pide confirmación.
-- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila y, para admins, **papelera** para eliminar el carnet.
+- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila y, para admins, **papelera** para eliminar el carnet y la línea **"Registrado por usuario"** (en carnets antiguos sin `createdByName` se busca por `createdBy`).
 - Buscador por nombre o RUT.
 - Botón flotante **"+ Escanear carnet"**.
 
@@ -120,13 +120,13 @@ admins/{email}                       // correos de Google autorizados como admin
 
 **Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
 
-**Recorte fino** (`lib/refine.ts`): tras capturar (o encuadrar desde la galería) se detectan los bordes reales del carnet (líneas continuas más externas de la franja exterior) y se recorta 1,5 % hacia adentro; las esquinas redondeadas se rellenan con el color del carnet. Un par de bordes opuestos solo se usa si se detectan ambos; si no, recorte fijo de 2,5 %.
+**Recorte fino** (`lib/refine.ts`): tras capturar (o encuadrar desde la galería) se detectan los bordes reales del carnet (líneas continuas más externas de la franja exterior) y se recorta 0,5 % del ancho hacia adentro (la misma distancia en todos los lados); las esquinas redondeadas se rellenan con el color del carnet. Un par de bordes opuestos solo se usa si se detectan ambos; si no, recorte fijo de 1 %.
 
 **Enfoque** (`lib/camera.ts`): el marco ocupa el 72 % del ancho para que el celular quede a una distancia en que puede enfocar; se pide resolución 4K. Se elige la cámara trasera principal (no gran angular/tele) y se activa el enfoque continuo. Donde el navegador lo permite (Chrome en Android): **toque para enfocar**, **zoom** y botón para **cambiar de cámara** (se recuerda la elegida). En iPhone el sistema enfoca solo.
 
 ### 5.4 Detalle de un carnet
 - Lee `images/main` y muestra ambos lados en grande, junto al nombre del archivo.
-- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin).
+- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin). Solo los admins ven quién lo registró y quién lo editó por última vez.
 
 ### 5.5 Configuración
 - Captura automática y lectura automática (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.

@@ -47,6 +47,14 @@ describe("detectCardEdges", () => {
 });
 
 describe("cropBox", () => {
+  it("el margen es mínimo y el mismo en ambos ejes", () => {
+    const b = cropBox({ top: 9, bottom: 243, left: 12, right: 390 }, W, H);
+    const mx = b.x0 * W - 12;
+    const my = b.y0 * H - 9;
+    expect(mx).toBeLessThan(4);
+    expect(Math.abs(mx - my)).toBeLessThan(0.01);
+  });
+
   it("recorta hacia adentro del borde detectado", () => {
     const b = cropBox({ top: 9, bottom: 243, left: 12, right: 390 }, W, H);
     expect(b.x0 * W).toBeGreaterThan(12);
@@ -57,13 +65,13 @@ describe("cropBox", () => {
 
   it("usa un recorte fijo si no detecta bordes", () => {
     const b = cropBox({ top: null, bottom: null, left: null, right: null }, W, H);
-    expect(b.x0).toBeCloseTo(0.025);
-    expect(b.x1).toBeCloseTo(0.975);
+    expect(b.x0).toBeCloseTo(0.01);
+    expect(b.x1).toBeCloseTo(0.99);
   });
 
   it("ignora un borde si el opuesto no se detectó", () => {
     const b = cropBox({ top: 9, bottom: 243, left: 30, right: null }, W, H);
-    expect(b.x0).toBeCloseTo(0.025);
+    expect(b.x0).toBeCloseTo(0.01);
     expect(b.y0 * H).toBeGreaterThan(9);
   });
 

@@ -33,8 +33,11 @@ export type Card = {
   rut: string | null;
   thumb: string;
   createdAt: Date | null;
-  /** Usuario que escaneó el carnet. */
+  /** Usuario que escaneó el carnet (uid y nombre). */
+  createdBy: string | null;
   createdByName: string | null;
+  /** Último usuario que corrigió nombre o RUT. */
+  updatedByName: string | null;
 };
 
 export type CardImages = { front: string; back: string };
@@ -68,7 +71,9 @@ function toCard(s: QueryDocumentSnapshot | DocumentSnapshot): Card {
     rut: d.rut ? String(d.rut) : null,
     thumb: String(d.thumb ?? ""),
     createdAt: toDate(d.createdAt),
+    createdBy: d.createdBy ? String(d.createdBy) : null,
     createdByName: d.createdByName ? String(d.createdByName) : null,
+    updatedByName: d.updatedByName ? String(d.updatedByName) : null,
   };
 }
 

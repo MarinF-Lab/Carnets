@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAllowedUser } from "@/components/AuthProvider";
+import { useRegisteredBy } from "@/components/useRegisteredBy";
 import { ConfirmDialog, Sheet } from "@/components/Dialog";
 import { btn, EmptyState, ErrorNote, Icon, input, PageHeader, Spinner } from "@/components/ui";
 import { deleteCard, getCard, getCardImages, getContractor, updateCard, type Card, type CardImages } from "@/lib/db";
@@ -16,6 +17,7 @@ type Data = { card: Card; images: CardImages | null; contractorName: string };
 function CardView({ id }: { id: string }) {
   const router = useRouter();
   const { isAdmin, username } = useAllowedUser();
+  const registeredBy = useRegisteredBy();
   const [editing, setEditing] = useState(false);
   const [data, setData] = useState<Data | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -101,8 +103,11 @@ function CardView({ id }: { id: string }) {
             <Icon.file width={18} height={18} className="shrink-0" />
             {fileName}
           </p>
-          {data.card.createdByName && (
-            <p className="-mt-2 mb-4 text-sm text-muted">Escaneado por {data.card.createdByName}</p>
+          {registeredBy && (
+            <p className="-mt-2 mb-4 text-sm text-muted">
+              Registrado por <strong className="font-medium text-ink">{registeredBy(data.card)}</strong>
+              {data.card.updatedByName && <> · editado por {data.card.updatedByName}</>}
+            </p>
           )}
           {data.images ? (
             <div className="grid gap-5 sm:grid-cols-2">
@@ -149,7 +154,7 @@ function CardView({ id }: { id: string }) {
           onClose={() => setEditing(false)}
           onSave={async (name, rut) => {
             await updateCard(data.card.id, { name, rut }, username);
-            setData({ ...data, card: { ...data.card, name: name.trim(), rut } });
+            setData({ ...data, card: { ...data.card, name: name.trim(), rut, updatedByName: username } });
             setEditing(false);
           }}
         />
