@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Lector de texto copiado de node_modules en cada build.
+    "public/tesseract/**",
   ]),
 ]);
 

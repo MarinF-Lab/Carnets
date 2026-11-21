@@ -1,6 +1,9 @@
 /**
  * Lectura automática del carnet (sección 6 de CLAUDE.md).
- * Interfaz estable: readCard(front, back) → { name, rut, rutValid, source }.
+ * - readFront: se llama apenas se captura el frontal (mientras se da vuelta el carnet).
+ * - readBack: MRZ del reverso, solo si al frontal le faltó algo.
+ * - readCard(front, back): interfaz combinada.
+ * Los archivos del lector se sirven desde el propio sitio (public/tesseract).
  */
 import type { Worker } from "tesseract.js";
 import { preprocessForOcr } from "./image";
@@ -17,13 +20,20 @@ export type ReadResult = {
   };
 };
 
+const empty = (): ReadResult => ({ name: null, rut: null, rutValid: false, source: { name: null, rut: null } });
+
 let workerPromise: Promise<Worker> | null = null;
 
-/** Carga Tesseract.js de forma diferida y reutiliza el mismo worker. */
+/** Carga Tesseract.js (desde el propio sitio) de forma diferida y reutiliza el mismo worker. */
 export function preloadOcr(): Promise<Worker> {
   workerPromise ??= (async () => {
-    const { createWorker } = await import("tesseract.js");
-    return createWorker("spa");
+    const { createWorker, OEM } = await import("tesseract.js");
+    return createWorker("spa", OEM.LSTM_ONLY, {
+      workerPath: "/tesseract/worker.min.js",
+      corePath: "/tesseract",
+      langPath: "/tesseract/lang",
+      gzip: true,
+    });
   })().catch((err) => {
     workerPromise = null;
     throw err;
@@ -32,13 +42,12 @@ export function preloadOcr(): Promise<Worker> {
 }
 
 const MRZ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<";
-
-async function ocr(canvas: HTMLCanvasElement, mode: "page" | "mrz" = "page"): Promise<string> {
+async function ocr(canvas: HTMLCanvasElement, mode: "page" | "mrz"): Promise<string> {
   const worker = await preloadOcr();
   await worker.setParameters({
     tessedit_char_whitelist: mode === "mrz" ? MRZ_CHARS : "",
-    // MRZ: un bloque uniforme de texto (PSM 6). Frontal: segmentación automática (PSM 3).
-    tessedit_pageseg_mode: (mode === "mrz" ? "6" : "3") as never,
+    // page: segmentación automática; mrz: un bloque de texto uniforme.
+    tessedit_pageseg_mode: (mode === "page" ? "3" : "6") as never,
   });
   const { data } = await worker.recognize(canvas);
   return data.text ?? "";
@@ -52,45 +61,60 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function readCard(front: HTMLCanvasElement, back: HTMLCanvasElement): Promise<ReadResult> {
+/** Frontal: nombre (APELLIDOS/NOMBRES) y RUN, en una sola lectura a 1600 px. */
+export function readFront(front: HTMLCanvasElement): Promise<ReadResult> {
   return serial(async () => {
-    const result: ReadResult = { name: null, rut: null, rutValid: false, source: { name: null, rut: null } };
-
-    // 1. OCR del frontal: nombre y RUT.
-    const frontText = await ocr(preprocessForOcr(front)).catch(() => "");
-    const frontName = nameFromFront(frontText);
-    if (frontName) {
-      result.name = frontName;
-      result.source.name = "ocr-frontal";
-    }
-    if (!result.rut) {
-      const r = rutFromText(frontText);
-      if (r) {
-        result.rut = r;
-        result.source.rut = "ocr-frontal";
-      }
-    }
-
-    // 2. MRZ del reverso (parte inferior), si aún falta el nombre o el RUT.
-    if (!result.name || !result.rut) {
-      const mrzText = await ocr(preprocessForOcr(back, { y0: 0.45, y1: 1 }), "mrz").catch(() => "");
-      if (!result.name) {
-        const n = nameFromMrz(mrzText);
-        if (n) {
-          result.name = n;
-          result.source.name = "mrz";
-        }
-      }
-      if (!result.rut) {
-        const r = rutFromText(mrzText.replace(/</g, " "));
-        if (r && isValidRut(r)) {
-          result.rut = r;
-          result.source.rut = "ocr-reverso";
-        }
-      }
-    }
-
-    result.rutValid = result.rut ? isValidRut(result.rut) : false;
-    return result;
+    const r = empty();
+    const text = await ocr(preprocessForOcr(front, undefined, 1600), "page").catch(() => "");
+    r.name = nameFromFront(text);
+    r.rut = rutFromText(text);
+    if (r.name) r.source.name = "ocr-frontal";
+    if (r.rut) r.source.rut = "ocr-frontal";
+    r.rutValid = r.rut ? isValidRut(r.rut) : false;
+    return r;
   });
+}
+
+/** Reverso: nombre y RUN desde la MRZ (las 3 líneas con '<'). */
+export function readBack(back: HTMLCanvasElement): Promise<ReadResult> {
+  return serial(async () => {
+    const r = empty();
+    const mrzText = await ocr(preprocessForOcr(back, { y0: 0.45, y1: 1 }), "mrz").catch(() => "");
+    r.name = nameFromMrz(mrzText);
+    if (r.name) r.source.name = "mrz";
+    const rut = rutFromText(mrzText.replace(/</g, " "));
+    if (rut && isValidRut(rut)) {
+      r.rut = rut;
+      r.source.rut = "ocr-reverso";
+    }
+    r.rutValid = r.rut ? isValidRut(r.rut) : false;
+    return r;
+  });
+}
+
+/** Combina: primero el frontal; lo que falte, desde el reverso. */
+export function mergeReads(front: ReadResult, back: ReadResult | null): ReadResult {
+  const r: ReadResult = { ...front, source: { ...front.source } };
+  if (back) {
+    if (!r.name && back.name) {
+      r.name = back.name;
+      r.source.name = back.source.name;
+    }
+    if ((!r.rut || !r.rutValid) && back.rut && back.rutValid) {
+      r.rut = back.rut;
+      r.source.rut = back.source.rut;
+    }
+  }
+  r.rutValid = r.rut ? isValidRut(r.rut) : false;
+  return r;
+}
+
+/** ¿Hace falta leer el reverso? */
+export function needsBack(front: ReadResult): boolean {
+  return !front.name || !front.rutValid;
+}
+
+export async function readCard(front: HTMLCanvasElement, back: HTMLCanvasElement): Promise<ReadResult> {
+  const f = await readFront(front);
+  return mergeReads(f, needsBack(f) ? await readBack(back) : null);
 }

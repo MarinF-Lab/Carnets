@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "predev": "node scripts/copy-tesseract.mjs",
+    "prebuild": "node scripts/copy-tesseract.mjs"
   },
   "dependencies": {
+    "@tesseract.js-data/spa": "^1.0.0",
     "firebase": "^13.4.0",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.2",

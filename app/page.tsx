@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAllowedUser, useAuth } from "@/components/AuthProvider";
+import Link from "next/link";
+import { useAllowedUser } from "@/components/AuthProvider";
+import { useGroup } from "@/components/GroupProvider";
 import { CardRow } from "@/components/CardRow";
 import { PromptDialog } from "@/components/Dialog";
 import { Folder } from "@/components/Folder";
@@ -12,8 +14,71 @@ import { cleanRut } from "@/lib/rut";
 import { normalize } from "@/lib/text";
 
 export default function HomePage() {
-  const { user } = useAllowedUser();
-  const { signOut } = useAuth();
+  const { groups, group } = useGroup();
+  const { isAdmin } = useAllowedUser();
+  if (!groups) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center text-muted">
+        <Spinner />
+      </div>
+    );
+  }
+  if (!group) {
+    return (
+      <div className="mx-auto max-w-3xl px-4">
+        <PageHeader
+          title="Contratistas"
+          actions={
+            <Link href="/configuracion" className={`${btn.ghost} text-muted`} aria-label="Configuración">
+              <Icon.gear />
+            </Link>
+          }
+        />
+        <EmptyState title={isAdmin ? "Aún no hay grupos" : "Sin grupo"}>
+          {isAdmin ? (
+            <>
+              Crea el primero en{" "}
+              <Link href="/configuracion" className="font-medium text-accent underline">
+                Configuración
+              </Link>
+              .
+            </>
+          ) : (
+            "Pide a un administrador que te asigne un grupo."
+          )}
+        </EmptyState>
+      </div>
+    );
+  }
+  return <GroupHome key={group.id} groupId={group.id} />;
+}
+
+function GroupSelector() {
+  const { groups, group, setGroupId } = useGroup();
+  if (!groups || groups.length < 2 || !group) return null;
+  return (
+    <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1" role="radiogroup" aria-label="Grupo">
+      {groups.map((g) => (
+        <button
+          key={g.id}
+          type="button"
+          role="radio"
+          aria-checked={g.id === group.id}
+          onClick={() => setGroupId(g.id)}
+          className={`min-h-10 shrink-0 rounded-full px-4 text-sm font-medium transition ${
+            g.id === group.id ? "bg-ink text-paper" : "bg-card text-ink ring-1 ring-line"
+          }`}
+        >
+          {g.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GroupHome({ groupId }: { groupId: string }) {
+  const { user, username, isAdmin } = useAllowedUser();
+  const { group } = useGroup();
   const router = useRouter();
   const [contractors, setContractors] = useState<Contractor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,9 +87,8 @@ export default function HomePage() {
   const [allCards, setAllCards] = useState<Card[] | null>(null);
 
   useEffect(
-    () =>
-      watchContractors(setContractors, () => setError("No se pudieron cargar los contratistas.")),
-    [],
+    () => watchContractors(groupId, setContractors, () => setError("No se pudieron cargar los contratistas.")),
+    [groupId],
   );
 
   const term = normalize(q);
@@ -35,13 +99,13 @@ export default function HomePage() {
   useEffect(() => {
     if (!searching || allCards || loadingRef.current) return;
     loadingRef.current = true;
-    getAllCards()
+    getAllCards(groupId)
       .then(setAllCards)
       .catch(() => setError("No se pudo buscar trabajadores."))
       .finally(() => {
         loadingRef.current = false;
       });
-  }, [searching, allCards]);
+  }, [searching, allCards, groupId]);
   const cardsLoading = searching && !allCards;
 
   const nameById = useMemo(() => new Map((contractors ?? []).map((c) => [c.id, c.name])), [contractors]);
@@ -67,14 +131,15 @@ export default function HomePage() {
     <div className="mx-auto max-w-3xl px-4 pb-28">
       <PageHeader
         title="Contratistas"
-        subtitle={user.email}
+        subtitle={isAdmin ? `${group?.name} · Admin` : `${group?.name} · ${username}`}
         actions={
-          <button type="button" onClick={() => signOut()} className={`${btn.ghost} text-muted`} aria-label="Cerrar sesión">
-            <Icon.logout />
-          </button>
+          <Link href="/configuracion" className={`${btn.ghost} text-muted`} aria-label="Configuración">
+            <Icon.gear />
+          </Link>
         }
       />
 
+      {isAdmin && <GroupSelector />}
       <SearchBox value={q} onChange={setQ} placeholder="Buscar contratista o trabajador" />
 
       <div className="mt-5 space-y-6">
@@ -135,7 +200,7 @@ export default function HomePage() {
           confirmLabel="Crear"
           onClose={() => setCreating(false)}
           onSubmit={async (name) => {
-            const id = await createContractor(name, user.uid);
+            const id = await createContractor(name, user.uid, groupId);
             router.push(`/contratista?id=${id}`);
           }}
         />

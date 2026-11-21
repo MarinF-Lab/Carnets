@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import { AuthGate } from "@/components/AuthGate";
+import { ServiceWorker } from "@/components/ServiceWorker";
+import { themeScript } from "@/lib/settings";
 import "./globals.css";
 
 const schibsted = Schibsted_Grotesk({
@@ -30,8 +32,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es-CL" className={`${schibsted.variable} h-full antialiased`}>
+    <html lang="es-CL" className={`${schibsted.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="min-h-full">
+        <ServiceWorker />
         <AuthProvider>
           <AuthGate>{children}</AuthGate>
         </AuthProvider>

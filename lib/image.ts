@@ -1,7 +1,6 @@
 /** Utilidades de imagen (solo navegador). */
 
-/** Proporción de un carnet: 85,6 × 54 mm. */
-export const CARD_RATIO = 85.6 / 54;
+export { CARD_RATIO } from "./align";
 
 export function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -65,11 +64,15 @@ export function cropVideo(
 }
 
 /** Copia en escala de grises con más contraste, para el OCR. */
-export function preprocessForOcr(src: HTMLCanvasElement, region?: { y0: number; y1: number }): HTMLCanvasElement {
+export function preprocessForOcr(
+  src: HTMLCanvasElement,
+  region?: { y0: number; y1: number },
+  maxSide = 2000,
+): HTMLCanvasElement {
   const y0 = Math.round((region?.y0 ?? 0) * src.height);
   const y1 = Math.round((region?.y1 ?? 1) * src.height);
-  // Tesseract funciona mejor con texto de buen tamaño: lado mayor ~2000 px.
-  const scale = Math.min(2, 2000 / Math.max(src.width, y1 - y0));
+  // Tesseract funciona mejor con texto de buen tamaño (lado mayor ~1600–2000 px).
+  const scale = Math.min(2, maxSide / Math.max(src.width, y1 - y0));
   const out = makeCanvas(src.width * scale, (y1 - y0) * scale);
   const ctx = ctx2d(out);
   ctx.imageSmoothingQuality = "high";
