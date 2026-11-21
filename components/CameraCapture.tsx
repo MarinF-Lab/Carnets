@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { analyzeAlignment, frameRect as baseFrameRect, SAMPLE_MARGIN, toGray } from "@/lib/align";
 import { focusAt, openBackCamera, setZoom, type CameraInfo } from "@/lib/camera";
 import { cropVideo, fileToCanvas, makeCanvas } from "@/lib/image";
+import { refineCrop } from "@/lib/refine";
 import { useSettings } from "@/lib/settings";
 import { CropEditor } from "./CropEditor";
 import { btn, Icon, Spinner } from "./ui";
@@ -132,7 +133,8 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
     const canvas = cropVideo(v, sx, sy, Math.min(v.videoWidth - sx, r.sw), Math.min(v.videoHeight - sy, r.sh));
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
-    onCapture(canvas);
+    // Recorte fino: bordes reales del carnet, sin fondo.
+    onCapture(refineCrop(canvas));
   }, [onCapture]);
 
   // Revisión continua del encuadre (~8 veces por segundo).
@@ -340,7 +342,7 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
           onCancel={() => setCropSource(null)}
           onDone={(canvas) => {
             setCropSource(null);
-            onCapture(canvas);
+            onCapture(refineCrop(canvas));
           }}
         />
       )}

@@ -120,6 +120,8 @@ admins/{email}                       // correos de Google autorizados como admin
 
 **Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
 
+**Recorte fino** (`lib/refine.ts`): tras capturar (o encuadrar desde la galería) se detectan los bordes reales del carnet (líneas continuas más externas de la franja exterior) y se recorta 1,5 % hacia adentro; las esquinas redondeadas se rellenan con el color del carnet. Un par de bordes opuestos solo se usa si se detectan ambos; si no, recorte fijo de 2,5 %.
+
 **Enfoque** (`lib/camera.ts`): el marco ocupa el 72 % del ancho para que el celular quede a una distancia en que puede enfocar; se pide resolución 4K. Se elige la cámara trasera principal (no gran angular/tele) y se activa el enfoque continuo. Donde el navegador lo permite (Chrome en Android): **toque para enfocar**, **zoom** y botón para **cambiar de cámara** (se recuerda la elegida). En iPhone el sistema enfoca solo.
 
 ### 5.4 Detalle de un carnet
