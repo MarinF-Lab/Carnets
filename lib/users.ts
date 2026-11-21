@@ -1,12 +1,12 @@
 /**
  * Administración de grupos, usuarios y administradores.
- * - Los usuarios entran con su usuario + la contraseña de su grupo.
+ * - Los usuarios entran con su usuario + la contraseña de su grupo. La primera vez
+ *   se registran solos: la contraseña identifica al grupo (groupKeys/{hash}).
  * - Los administradores entran con Google (correos autorizados en admins/{email}).
  */
 import { deleteApp, initializeApp } from "firebase/app";
 import {
   connectAuthEmulator,
-  createUserWithEmailAndPassword,
   getAuth,
   signInWithEmailAndPassword,
   signOut,
@@ -55,6 +55,33 @@ export function usernameToEmail(username: string): string {
   return `${normalizeUsername(username)}@${DOMAIN}`;
 }
 
+/**
+ * Clave del grupo: SHA-256 de la contraseña. Es el ID del documento groupKeys/{clave},
+ * que dice a qué grupo pertenece una contraseña sin guardarla en claro.
+ */
+export async function groupKey(password: string): Promise<string> {
+  const data = new TextEncoder().encode(`carnets-v1:${password}`);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const keyDoc = (key: string) => doc(db(), "groupKeys", key);
+
+/** ¿A qué grupo corresponde esta contraseña? (null si a ninguno) */
+export async function findGroupByPassword(password: string): Promise<{ groupId: string; name: string; key: string } | null> {
+  const key = await groupKey(password);
+  const s = await getDoc(keyDoc(key));
+  if (!s.exists()) return null;
+  return { groupId: String(s.data().groupId), name: String(s.data().name ?? ""), key };
+}
+
+async function assertPasswordFree(password: string, exceptGroupId?: string) {
+  const existing = await findGroupByPassword(password);
+  if (existing && existing.groupId !== exceptGroupId) {
+    throw new UserError("Otro grupo ya usa esa contraseña. Elige una distinta.");
+  }
+}
+
 const groupsCol = () => collection(db(), "groups");
 const secretDoc = (groupId: string) => doc(db(), "groupSecrets", groupId);
 const usersCol = () => collection(db(), "users");
@@ -96,16 +123,38 @@ export async function getGroup(id: string): Promise<Group | null> {
 export async function createGroup(name: string, password: string): Promise<string> {
   if (!name.trim()) throw new UserError("Escribe un nombre para el grupo.");
   checkPassword(password);
+  await assertPasswordFree(password);
   const ref = doc(groupsCol());
   const batch = writeBatch(db());
   batch.set(ref, { name: name.trim(), createdAt: serverTimestamp() });
   batch.set(secretDoc(ref.id), { password });
+  batch.set(keyDoc(await groupKey(password)), { groupId: ref.id, name: name.trim() });
   await batch.commit();
   return ref.id;
 }
 
 export async function renameGroup(id: string, name: string): Promise<void> {
-  await updateDoc(doc(groupsCol(), id), { name: name.trim() });
+  const batch = writeBatch(db());
+  batch.update(doc(groupsCol(), id), { name: name.trim() });
+  const password = await getGroupPassword(id).catch(() => null);
+  if (password) batch.set(keyDoc(await groupKey(password)), { groupId: id, name: name.trim() });
+  await batch.commit();
+}
+
+/**
+ * Asegura que cada grupo tenga su clave de acceso (para grupos creados antes
+ * del registro automático). Solo admin; es idempotente.
+ */
+export async function ensureGroupKeys(groups: Group[]): Promise<void> {
+  for (const g of groups) {
+    const password = await getGroupPassword(g.id).catch(() => null);
+    if (!password) continue;
+    const key = await groupKey(password);
+    const s = await getDoc(keyDoc(key));
+    if (!s.exists() || s.data().groupId !== g.id || s.data().name !== g.name) {
+      await setDoc(keyDoc(key), { groupId: g.id, name: g.name });
+    }
+  }
 }
 
 export async function getGroupPassword(groupId: string): Promise<string> {
@@ -124,7 +173,9 @@ export async function changeGroupPassword(
   onProgress?: (done: number, total: number) => void,
 ): Promise<string[]> {
   checkPassword(newPassword);
+  await assertPasswordFree(newPassword, groupId);
   const oldPassword = await getGroupPassword(groupId);
+  const group = await getGroup(groupId);
   const members = (await listUsers()).filter((u) => u.groupId === groupId);
   const failed: string[] = [];
   onProgress?.(0, members.length);
@@ -137,7 +188,11 @@ export async function changeGroupPassword(
     }
     onProgress?.(i + 1, members.length);
   }
-  await setDoc(secretDoc(groupId), { password: newPassword });
+  const batch = writeBatch(db());
+  batch.set(secretDoc(groupId), { password: newPassword });
+  batch.delete(keyDoc(await groupKey(oldPassword)));
+  batch.set(keyDoc(await groupKey(newPassword)), { groupId, name: group?.name ?? "" });
+  await batch.commit();
   return failed;
 }
 
@@ -165,30 +220,6 @@ export async function listUsers(): Promise<AppUser[]> {
       };
     })
     .sort((a, b) => a.username.localeCompare(b.username, "es"));
-}
-
-/** Crea un usuario en un grupo; su contraseña es la del grupo. */
-export async function createAppUser(rawUsername: string, groupId: string): Promise<void> {
-  const username = normalizeUsername(rawUsername);
-  if (!isValidUsername(username)) throw new UserError("Usuario no válido: usa de 2 a 30 letras o números, sin espacios.");
-  const existing = (await listUsers()).find((u) => u.username === username);
-  if (existing) throw new UserError("Ese usuario ya existe.");
-  const password = await getGroupPassword(groupId);
-  const uid = await withSecondaryAuth(async (auth) => {
-    try {
-      return (await createUserWithEmailAndPassword(auth, usernameToEmail(username), password)).user.uid;
-    } catch (err) {
-      if ((err as { code?: string }).code !== "auth/email-already-in-use") throw err;
-      try {
-        return (await signInWithEmailAndPassword(auth, usernameToEmail(username), password)).user.uid;
-      } catch {
-        throw new UserError("Ese usuario ya existe con otra contraseña.");
-      }
-    } finally {
-      await signOut(auth).catch(() => undefined);
-    }
-  });
-  await setDoc(doc(usersCol(), uid), { username, groupId, active: true, createdAt: serverTimestamp() });
 }
 
 export async function setUserActive(uid: string, active: boolean): Promise<void> {

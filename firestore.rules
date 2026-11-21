@@ -66,9 +66,34 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Clave de acceso: ID = SHA-256 de la contraseña del grupo → { groupId, name }.
+    // Se puede consultar por ID (hay que conocer la contraseña), nunca listar.
+    match /groupKeys/{key} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if isAdmin();
+    }
+
+    // Registro propio: el usuario se crea a sí mismo con la clave de su grupo.
+    function validSelfRegistration(uid) {
+      let d = request.resource.data;
+      return signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && d.keys().hasOnly(['username', 'groupId', 'joinKey', 'active', 'createdAt'])
+        && validUser(d)
+        && d.active == true
+        // El nombre de usuario debe ser el de su cuenta (nadie toma el de otro).
+        && request.auth.token.email == d.username + '@usuarios.carnets.app'
+        && d.joinKey is string
+        && exists(docPath('groupKeys', d.joinKey))
+        && get(docPath('groupKeys', d.joinKey)).data.groupId == d.groupId;
+    }
+
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isAdmin() && validUser(request.resource.data);
+      // Los usuarios solo se crean a sí mismos; el admin los desactiva o cambia de grupo.
+      allow create: if validSelfRegistration(uid);
       allow update: if isAdmin()
         && validUser(request.resource.data)
         && request.resource.data.username == resource.data.username;

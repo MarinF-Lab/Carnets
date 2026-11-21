@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -11,9 +12,9 @@ import {
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
-import { MIN_PASSWORD, usernameToEmail, UserError } from "@/lib/users";
+import { findGroupByPassword, isValidUsername, MIN_PASSWORD, normalizeUsername, usernameToEmail, UserError } from "@/lib/users";
 
 export type AuthState =
   | { status: "loading" }
@@ -24,9 +25,14 @@ export type AuthState =
   | { status: "allowed"; user: User; kind: "admin"; username: string; groupId: null }
   | { status: "allowed"; user: User; kind: "user"; username: string; groupId: string };
 
+/** Resultado de entrar como usuario: listo, o pedir confirmación para crear el usuario nuevo. */
+export type SignInResult = { status: "ok" } | { status: "new"; username: string; groupName: string };
+
 type AuthContextValue = {
   state: AuthState;
-  signInUser: (username: string, password: string) => Promise<void>;
+  signInUser: (username: string, password: string) => Promise<SignInResult>;
+  /** Crea el usuario en el grupo de esa contraseña (tras confirmar). */
+  registerUser: (username: string, password: string) => Promise<void>;
   signInAdmin: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -76,11 +82,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(
     firebaseConfigured ? { status: "loading" } : { status: "unconfigured" },
   );
+  // Durante el registro se ignoran los cambios de sesión intermedios.
+  const registering = useRef(false);
 
   useEffect(() => {
     if (!firebaseConfigured) return;
     let active = true;
     const unsubscribe = onAuthStateChanged(auth(), async (user) => {
+      if (registering.current) return;
       if (!user) {
         if (active) setState({ status: "signedOut" });
         return;
@@ -95,8 +104,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signInUser = useCallback(async (username: string, password: string) => {
-    await signInWithEmailAndPassword(auth(), usernameToEmail(username), password);
+  const signInUser = useCallback(async (rawUsername: string, password: string): Promise<SignInResult> => {
+    const username = normalizeUsername(rawUsername);
+    if (!isValidUsername(username)) throw new UserError("Usuario no válido: usa de 2 a 30 letras o números, sin espacios.");
+    try {
+      await signInWithEmailAndPassword(auth(), usernameToEmail(username), password);
+      return { status: "ok" };
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      if (!["auth/invalid-credential", "auth/user-not-found", "auth/wrong-password"].includes(code)) throw err;
+      // ¿Usuario nuevo? La contraseña indica el grupo.
+      const group = await findGroupByPassword(password);
+      if (!group) throw new UserError("Contraseña incorrecta: no corresponde a ningún grupo.");
+      return { status: "new", username, groupName: group.name };
+    }
+  }, []);
+
+  const registerUser = useCallback(async (rawUsername: string, password: string) => {
+    const username = normalizeUsername(rawUsername);
+    const group = await findGroupByPassword(password);
+    if (!group) throw new UserError("Contraseña incorrecta: no corresponde a ningún grupo.");
+    registering.current = true;
+    try {
+      let cred;
+      try {
+        cred = await createUserWithEmailAndPassword(auth(), usernameToEmail(username), password);
+      } catch (err) {
+        if ((err as { code?: string }).code === "auth/email-already-in-use") {
+          throw new UserError("Ese usuario ya existe con otra contraseña. Elige otro nombre.");
+        }
+        throw err;
+      }
+      try {
+        await setDoc(doc(db(), "users", cred.user.uid), {
+          username,
+          groupId: group.groupId,
+          joinKey: group.key,
+          active: true,
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        await cred.user.delete().catch(() => undefined);
+        throw err;
+      }
+      setState(await checkAccess(cred.user));
+    } finally {
+      registering.current = false;
+    }
   }, []);
 
   const signInAdmin = useCallback(async () => {
@@ -128,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fbSignOut(auth());
   }, []);
 
-  return <AuthContext.Provider value={{ state, signInUser, signInAdmin, signOut }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ state, signInUser, registerUser, signInAdmin, signOut }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

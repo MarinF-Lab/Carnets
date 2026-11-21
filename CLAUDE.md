@@ -65,9 +65,14 @@ groups/{groupId}                     // grupos: cada uno con su contraseña; sus
 groupSecrets/{groupId}               // solo admins
   password: string                   // contraseña común del grupo
 
-users/{uid}                          // usuarios (los crea un admin)
-  username: string                   // "juan.perez"
+groupKeys/{sha256("carnets-v1:" + contraseña)}   // la contraseña identifica al grupo
+  groupId: string                    // se lee por ID (hay que saber la contraseña); no se puede listar
+  name: string
+
+users/{uid}                          // usuarios: se registran solos la primera vez
+  username: string                   // "juan.perez" (= parte local de su correo interno)
   groupId: string
+  joinKey: string                    // clave con la que se registró
   active: boolean                    // false = desactivado, no puede entrar
 
 admins/{email}                       // correos de Google autorizados como administrador
@@ -83,10 +88,10 @@ admins/{email}                       // correos de Google autorizados como admin
 ## 4. Seguridad
 
 - La entrada tiene dos opciones:
-  - **Usuario**: usuario + **contraseña de su grupo** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`).
+  - **Usuario**: usuario + **contraseña de su grupo** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`). **No los crea el admin**: la primera vez, la contraseña indica el grupo (`groupKeys`) y la app pregunta "¿Crear el usuario X en el grupo Y?".
   - **Administrador**: **Google**, solo correos autorizados en `admins/{email}`.
 - **Grupos**: cada grupo tiene su contraseña; los usuarios del mismo grupo comparten datos y no ven los de otros grupos. Los admins ven todos los grupos (selector en Inicio).
-- Los admins, en **Configuración**: crean grupos y ven/cambian su contraseña (la app actualiza la de todos sus usuarios), agregan/desactivan/cambian de grupo usuarios y autorizan otros correos como admin.
+- Los admins, en **Configuración**: crean grupos y ven/cambian su contraseña (la app actualiza la de todos sus usuarios y su clave), desactivan o cambian de grupo usuarios y autorizan otros correos como admin. Dos grupos no pueden tener la misma contraseña.
 - **Usuarios solo agregan**: crean contratistas y escanean carnets. Renombrar y eliminar es solo de admins.
 - **Reglas de Firestore** (`firestore.rules`): todo dato se filtra por `groupId`; `groupSecrets` y `admins` solo para admins; un admin no puede quitarse a sí mismo.
 - Al eliminar un carnet, borrar también `images/main`. Al eliminar un contratista, borrar todos sus carnets y sus imágenes.

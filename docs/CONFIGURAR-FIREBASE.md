@@ -26,8 +26,8 @@ En **Firestore → Datos**, colección `admins`, crea un documento cuyo ID sea e
 ## 6. Grupos y usuarios (desde la app)
 Entra como **Administrador** con Google y ve a **⚙ Configuración**:
 1. **Grupos → Nuevo grupo**: nombre y contraseña del grupo.
-2. **Usuarios → Agregar usuario**: usuario y grupo. Entra con su usuario y la contraseña del grupo.
-3. Para quitar el acceso a alguien: **Desactivar**. Para cambiar la contraseña de un grupo: tócalo → **Cambiar contraseña** (se actualiza para todos sus usuarios).
+2. Comparte la contraseña con el equipo. Cada persona entra en **Usuario** con el nombre que quiera y esa contraseña; la primera vez la app le pregunta si crear el usuario en ese grupo.
+3. Para quitar el acceso a alguien: **Usuarios → Desactivar**. Para cambiar la contraseña de un grupo: tócalo → **Cambiar contraseña** (se actualiza para todos sus usuarios).
 
 ## 7. `.env.local`
 Copia `.env.local.example` como `.env.local` y completa con los valores de

@@ -46,7 +46,8 @@ function GoogleIcon() {
 }
 
 function LoginForm() {
-  const { signInUser, signInAdmin } = useAuth();
+  const { signInUser, registerUser, signInAdmin } = useAuth();
+  const [confirmNew, setConfirmNew] = useState<{ username: string; groupName: string } | null>(null);
   const [mode, setMode] = useState<"user" | "admin">("user");
   const [username, setUsername] = useState(() => {
     try {
@@ -64,11 +65,33 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      await signInUser(username, password);
-      try {
-        localStorage.setItem(LAST_USER, username.trim());
-      } catch {}
+      const res = await signInUser(username, password);
+      if (res.status === "new") {
+        setConfirmNew({ username: res.username, groupName: res.groupName });
+        setBusy(false);
+        return;
+      }
+      remember();
     } catch (err) {
+      setError(authErrorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  function remember() {
+    try {
+      localStorage.setItem(LAST_USER, username.trim());
+    } catch {}
+  }
+
+  async function createNew() {
+    setBusy(true);
+    setError(null);
+    try {
+      await registerUser(username, password);
+      remember();
+    } catch (err) {
+      setConfirmNew(null);
       setError(authErrorMessage(err));
       setBusy(false);
     }
@@ -112,7 +135,24 @@ function LoginForm() {
         ))}
       </div>
 
-      {mode === "user" ? (
+      {mode === "user" && confirmNew ? (
+        <div className="space-y-4">
+          <p className="rounded-xl bg-paper p-4 text-center">
+            El usuario <strong>{confirmNew.username}</strong> no existe.
+            <br />
+            ¿Crearlo en el grupo <strong>{confirmNew.groupName}</strong>?
+          </p>
+          {error && <p className="text-sm text-accent">{error}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" className={btn.secondary} onClick={() => setConfirmNew(null)} disabled={busy}>
+              Corregir
+            </button>
+            <button type="button" className={btn.primary} onClick={createNew} disabled={busy}>
+              {busy ? <Spinner /> : "Crear y entrar"}
+            </button>
+          </div>
+        </div>
+      ) : mode === "user" ? (
         <form onSubmit={submit} className="space-y-4">
           <Field
             label="Usuario"
@@ -136,6 +176,7 @@ function LoginForm() {
           <button type="submit" className={`${btn.dark} w-full`} disabled={busy || !username.trim() || !password}>
             {busy ? <Spinner /> : "Entrar"}
           </button>
+          <p className="text-center text-sm text-muted">¿Primera vez? Escribe el usuario que quieras y la contraseña de tu grupo.</p>
         </form>
       ) : (
         <div className="space-y-4">

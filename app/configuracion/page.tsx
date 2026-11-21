@@ -10,14 +10,13 @@ import { updateSettings, useSettings, type Theme } from "@/lib/settings";
 import {
   addAdmin,
   changeGroupPassword,
-  createAppUser,
   createGroup,
+  ensureGroupKeys,
   getGroupPassword,
   listAdmins,
   listUsers,
   MIN_PASSWORD,
   moveUser,
-  normalizeUsername,
   removeAdmin,
   renameGroup,
   setUserActive,
@@ -149,6 +148,11 @@ function AdminSections() {
   }, []);
   useEffect(reloadUsers, [reloadUsers]);
 
+  // Grupos creados antes del registro automático: generar su clave de acceso.
+  useEffect(() => {
+    if (groups?.length) ensureGroupKeys(groups).catch(() => undefined);
+  }, [groups]);
+
   return (
     <>
       {error && (
@@ -204,7 +208,9 @@ function GroupsSection({ groups, users, onChanged }: { groups: Group[] | null; u
         })}
         <AddButton onClick={() => setDialog({ type: "new" })}>Nuevo grupo</AddButton>
       </Section>
-      <p className="mt-2 px-1 text-sm text-muted">Cada grupo tiene su contraseña. Los usuarios de un grupo comparten sus datos.</p>
+      <p className="mt-2 px-1 text-sm text-muted">
+        Cada grupo tiene su contraseña: quien entra con ella queda en ese grupo y comparte sus datos.
+      </p>
       {dialog?.type === "new" && (
         <NewGroupDialog
           onClose={() => setDialog(null)}
@@ -462,7 +468,6 @@ function UngroupedSection({ groups }: { groups: Group[] | null }) {
 /* ---------- Usuarios ---------- */
 
 function UsersSection({ groups, users, onChanged }: { groups: Group[] | null; users: AppUser[] | null; onChanged: () => void }) {
-  const [adding, setAdding] = useState(false);
   const [moving, setMoving] = useState<AppUser | null>(null);
   const [busyUid, setBusyUid] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -489,7 +494,11 @@ function UsersSection({ groups, users, onChanged }: { groups: Group[] | null; us
             <Spinner />
           </div>
         )}
-        {users?.length === 0 && <Row><p className="text-muted">Aún no hay usuarios.</p></Row>}
+        {users?.length === 0 && (
+          <Row>
+            <p className="text-muted">Aún no hay usuarios.</p>
+          </Row>
+        )}
         {users?.map((u) => (
           <div key={u.uid} className="px-4 py-3">
             <div className="flex items-center gap-3">
@@ -516,26 +525,15 @@ function UsersSection({ groups, users, onChanged }: { groups: Group[] | null; us
             </div>
           </div>
         ))}
-        {groups?.length ? (
-          <AddButton onClick={() => setAdding(true)}>Agregar usuario</AddButton>
-        ) : (
-          <Row><p className="text-sm text-muted">Crea un grupo antes de agregar usuarios.</p></Row>
-        )}
       </Section>
+      <p className="mt-2 px-1 text-sm text-muted">
+        Los usuarios se crean solos la primera vez que entran con la contraseña de su grupo. Desactiva a quien ya no deba
+        entrar.
+      </p>
       {error && (
         <div className="mt-3">
           <ErrorNote>{error}</ErrorNote>
         </div>
-      )}
-      {adding && groups && (
-        <AddUserDialog
-          groups={groups}
-          onClose={() => setAdding(false)}
-          onAdded={() => {
-            setAdding(false);
-            onChanged();
-          }}
-        />
       )}
       {moving && groups && (
         <MoveUserDialog
@@ -564,62 +562,6 @@ function GroupPicker({ groups, value, onChange }: { groups: Group[]; value: stri
         ))}
       </select>
     </label>
-  );
-}
-
-function AddUserDialog({ groups, onClose, onAdded }: { groups: Group[]; onClose: () => void; onAdded: () => void }) {
-  const { group } = useGroup();
-  const [username, setUsername] = useState("");
-  const [groupId, setGroupId] = useState(group?.id ?? groups[0].id);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const preview = normalizeUsername(username);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await createAppUser(username, groupId);
-      onAdded();
-    } catch (err) {
-      setError(authErrorMessage(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Sheet onClose={busy ? () => {} : onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        <h2 className="text-xl font-bold">Agregar usuario</h2>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-muted">Usuario</span>
-          <input
-            className={input}
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="ej.: juan.perez"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            autoFocus
-            required
-          />
-          {username && preview !== username.trim() && <span className="mt-1 block text-sm text-muted">Se guardará como: {preview || "—"}</span>}
-        </label>
-        <GroupPicker groups={groups} value={groupId} onChange={setGroupId} />
-        <p className="text-sm text-muted">Entrará con este usuario y la contraseña del grupo.</p>
-        {error && <p className="text-sm text-accent">{error}</p>}
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <button type="button" className={btn.secondary} onClick={onClose} disabled={busy}>
-            Cancelar
-          </button>
-          <button type="submit" className={btn.primary} disabled={busy || !preview}>
-            {busy ? <Spinner /> : "Agregar"}
-          </button>
-        </div>
-      </form>
-    </Sheet>
   );
 }
 
