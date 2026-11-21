@@ -6,12 +6,16 @@
 /** Proporción de un carnet: 85,6 × 54 mm. */
 export const CARD_RATIO = 85.6 / 54;
 
-/** Marco del carnet dentro de un contenedor (90 % del ancho, o 80 % del alto si no cabe). */
-export function frameRect(cw: number, ch: number) {
-  let fw = cw * 0.9;
+/**
+ * Marco del carnet dentro de un contenedor: `fill` del ancho (o del alto si no cabe).
+ * En la cámara se usa más chico (0,72) para que el celular quede a una distancia
+ * en la que pueda enfocar; en el encuadre de la galería, 0,9.
+ */
+export function frameRect(cw: number, ch: number, fill = 0.9) {
+  let fw = cw * fill;
   let fh = fw / CARD_RATIO;
-  if (fh > ch * 0.8) {
-    fh = ch * 0.8;
+  if (fh > ch * (fill - 0.1)) {
+    fh = ch * (fill - 0.1);
     fw = fh * CARD_RATIO;
   }
   return { fx: (cw - fw) / 2, fy: (ch - fh) / 2, fw, fh };

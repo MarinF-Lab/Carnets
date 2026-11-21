@@ -57,3 +57,13 @@ body {
   font-size: 16px;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Anillo del toque para enfocar */
+@keyframes focusRing {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
+  25% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[focusRing_0\.9s_ease-out_forwards\] { animation: none; }
+}

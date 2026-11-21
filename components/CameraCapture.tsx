@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { analyzeAlignment, frameRect, SAMPLE_MARGIN, toGray } from "@/lib/align";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { analyzeAlignment, frameRect as baseFrameRect, SAMPLE_MARGIN, toGray } from "@/lib/align";
+import { focusAt, openBackCamera, setZoom, type CameraInfo } from "@/lib/camera";
 import { cropVideo, fileToCanvas, makeCanvas } from "@/lib/image";
 import { useSettings } from "@/lib/settings";
 import { CropEditor } from "./CropEditor";
@@ -17,6 +18,9 @@ type Props = {
 type Fit = "searching" | "aligned" | "blurry";
 
 const SAMPLE_W = 200;
+/** Marco más chico que la pantalla: obliga a alejar el celular a una distancia en que enfoca. */
+const CAMERA_FILL = 0.72;
+const frameRect = (cw: number, ch: number) => baseFrameRect(cw, ch, CAMERA_FILL);
 const BLUR_LIMIT = 9; // nitidez mínima del interior
 const AUTO_MS = 1000; // tiempo encuadrado antes de la captura automática
 
@@ -41,23 +45,28 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
   const [frame, setFrame] = useState({ fx: 0, fy: 0, fw: 0, fh: 0 });
   const [fit, setFit] = useState<Fit>("searching");
   const [cropSource, setCropSource] = useState<HTMLCanvasElement | null>(null);
+  const [cam, setCam] = useState<CameraInfo | null>(null);
+  const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
+  const [zoom, setZoomValue] = useState(1);
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number; id: number } | null>(null);
 
-  // Iniciar cámara trasera.
+  // Iniciar cámara trasera (la principal, con enfoque continuo).
   useEffect(() => {
-    let stream: MediaStream | null = null;
+    let info: CameraInfo | null = null;
     let cancelled = false;
     (async () => {
       try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Sin cámara");
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        });
-        if (cancelled) return;
+        info = await openBackCamera(deviceId);
+        if (cancelled) {
+          info.stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         const v = videoRef.current;
         if (!v) return;
-        v.srcObject = stream;
+        v.srcObject = info.stream;
         await v.play();
+        setCam(info);
+        setZoomValue(info.zoom ? Math.max(info.zoom.min, 1) : 1);
         setStatus("ready");
       } catch {
         if (!cancelled) setStatus("error");
@@ -65,9 +74,41 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
     })();
     return () => {
       cancelled = true;
-      stream?.getTracks().forEach((t) => t.stop());
+      info?.stream.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [deviceId]);
+
+  function switchCamera() {
+    if (!cam || cam.backCameras.length < 2) return;
+    const i = cam.backCameras.findIndex((d) => d.deviceId === cam.deviceId);
+    const next = cam.backCameras[(i + 1) % cam.backCameras.length];
+    setStatus("starting");
+    setDeviceId(next.deviceId);
+  }
+
+  // Toque para enfocar (donde el navegador lo permite).
+  function onTap(e: PointerEvent<HTMLDivElement>) {
+    const v = videoRef.current;
+    const el = boxRef.current;
+    if (!cam || !v || !el || !v.videoWidth) return;
+    const r = el.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
+    setFocusPoint({ x: px, y: py, id: Date.now() });
+    // Pasar del punto en pantalla al punto en el video (object-cover).
+    const scale = Math.max(r.width / v.videoWidth, r.height / v.videoHeight);
+    const dx = (r.width - v.videoWidth * scale) / 2;
+    const dy = (r.height - v.videoHeight * scale) / 2;
+    const x = Math.min(1, Math.max(0, (px - dx) / scale / v.videoWidth));
+    const y = Math.min(1, Math.max(0, (py - dy) / scale / v.videoHeight));
+    void focusAt(cam, x, y);
+  }
+
+  useEffect(() => {
+    if (!focusPoint) return;
+    const t = setTimeout(() => setFocusPoint(null), 900);
+    return () => clearTimeout(t);
+  }, [focusPoint]);
 
   // Recalcular el marco al cambiar el tamaño.
   useEffect(() => {
@@ -161,12 +202,14 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
   const ok = status === "ready" && fit === "aligned";
   const hint =
     fit === "blurry"
-      ? "Imagen borrosa: mantén el celular quieto"
+      ? "Imagen borrosa: aleja un poco el celular y mantenlo quieto"
       : fit === "aligned"
         ? autoCapture
           ? "Carnet encuadrado. Capturando…"
           : "Carnet encuadrado"
-        : "Ajusta el carnet dentro del marco";
+        : cam?.canTapFocus
+          ? "Ajusta el carnet al marco · toca para enfocar"
+          : "Ajusta el carnet dentro del marco";
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-black text-white">
@@ -175,10 +218,16 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
           <Icon.close />
         </button>
         <p className="text-lg font-semibold">{title}</p>
-        <span className="w-11" />
+        {cam && cam.backCameras.length > 1 ? (
+          <button type="button" onClick={switchCamera} className={`${btn.ghost} text-white`} aria-label="Cambiar cámara">
+            <Icon.switchCamera />
+          </button>
+        ) : (
+          <span className="w-11" />
+        )}
       </div>
 
-      <div ref={boxRef} className="relative flex-1 overflow-hidden">
+      <div ref={boxRef} className="relative flex-1 touch-manipulation overflow-hidden" onPointerUp={onTap}>
         <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full object-cover" />
 
         {status === "ready" && (
@@ -213,6 +262,35 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
             <Icon.camera width={40} height={40} />
             <p className="text-lg font-semibold">No se pudo abrir la cámara</p>
             <p className="text-white/75">Revisa el permiso de cámara del navegador o elige una foto de la galería.</p>
+          </div>
+        )}
+
+        {focusPoint && (
+          <span
+            key={focusPoint.id}
+            aria-hidden
+            className="pointer-events-none absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 animate-[focusRing_0.9s_ease-out_forwards] rounded-full border-2 border-amber-300"
+            style={{ left: focusPoint.x, top: focusPoint.y }}
+          />
+        )}
+
+        {status === "ready" && cam?.zoom && (
+          <div className="absolute right-4 bottom-4 left-4 flex items-center gap-3 rounded-full bg-black/45 px-4 py-1 backdrop-blur" onPointerUp={(e) => e.stopPropagation()}>
+            <span className="w-10 text-sm font-medium tabular-nums">{zoom.toFixed(1)}×</span>
+            <input
+              type="range"
+              aria-label="Zoom"
+              min={cam.zoom.min}
+              max={Math.min(cam.zoom.max, 5)}
+              step={cam.zoom.step}
+              value={zoom}
+              onChange={(e) => {
+                const z = Number(e.target.value);
+                setZoomValue(z);
+                void setZoom(cam, z);
+              }}
+              className="h-11 flex-1 accent-white"
+            />
           </div>
         )}
 
