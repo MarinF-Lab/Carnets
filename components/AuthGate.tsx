@@ -1,21 +1,37 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { useAuth } from "./AuthProvider";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { authErrorMessage, useAuth } from "./AuthProvider";
+import { GroupProvider } from "./GroupProvider";
+import { SyncStatus } from "./SyncStatus";
+import { btn, input, Spinner } from "./ui";
+
+const LAST_USER = "carnets.lastUser";
 
 function Screen({ children }: { children: ReactNode }) {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-6 py-10">
-      <div className="w-full max-w-sm rounded-2xl bg-card p-8 text-center shadow-sm">{children}</div>
+    <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-10">
+      <div className="w-full max-w-sm rounded-3xl bg-card p-7 shadow-sm">{children}</div>
     </main>
   );
 }
 
 function Logo() {
   return (
-    <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-accent text-2xl font-bold text-white">
-      C
-    </div>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/icons/icon.svg" alt="" className="mx-auto mb-5 h-14 w-14 rounded-2xl" />
+  );
+}
+
+function Field({
+  label,
+  ...props
+}: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <label className="block text-left">
+      <span className="mb-1.5 block text-sm font-medium text-muted">{label}</span>
+      <input className={input} {...props} />
+    </label>
   );
 }
 
@@ -30,35 +46,163 @@ function GoogleIcon() {
   );
 }
 
-const buttonPrimary =
-  "inline-flex min-h-11 w-full items-center justify-center gap-3 rounded-xl bg-ink px-5 text-base font-semibold text-paper transition-opacity active:opacity-80 disabled:opacity-50";
-const buttonSecondary =
-  "inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-line px-5 text-base font-medium";
-
-/** Muestra login, "Sin acceso" o el contenido según el estado de la sesión. */
-export function AuthGate({ children }: { children: ReactNode }) {
-  const { state, signIn, signOut } = useAuth();
+function LoginForm() {
+  const { signInUser, registerUser, signInAdmin } = useAuth();
+  const [confirmNew, setConfirmNew] = useState<{ username: string; groupName: string } | null>(null);
+  const [mode, setMode] = useState<"user" | "admin">("user");
+  const [username, setUsername] = useState(() => {
+    try {
+      return localStorage.getItem(LAST_USER) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSignIn() {
+  async function submit(e: FormEvent) {
+    e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await signIn();
-    } catch {
-      setError("No se pudo iniciar sesión. Inténtalo de nuevo.");
+      const res = await signInUser(username, password);
+      if (res.status === "new") {
+        setConfirmNew({ username: res.username, groupName: res.groupName });
+        setBusy(false);
+        return;
+      }
+      remember();
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  function remember() {
+    try {
+      localStorage.setItem(LAST_USER, username.trim());
+    } catch {}
+  }
+
+  async function createNew() {
+    setBusy(true);
+    setError(null);
+    try {
+      await registerUser(username, password);
+      remember();
+    } catch (err) {
+      setConfirmNew(null);
+      setError(authErrorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  async function google() {
+    setBusy(true);
+    setError(null);
+    try {
+      await signInAdmin();
+    } catch (err) {
+      setError(authErrorMessage(err));
     } finally {
       setBusy(false);
     }
   }
+
+  return (
+    <Screen>
+      <Logo />
+      <h1 className="mb-1 text-center text-2xl font-bold">Carnets</h1>
+      <p className="mb-6 text-center text-muted">Escáner de carnets por contratista</p>
+
+      <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-paper p-1" role="tablist" aria-label="Tipo de acceso">
+        {(["user", "admin"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => {
+              setMode(m);
+              setError(null);
+            }}
+            className={`min-h-11 rounded-lg text-base font-medium transition ${
+              mode === m ? "bg-card shadow-sm ring-1 ring-line" : "text-muted"
+            }`}
+          >
+            {m === "user" ? "Usuario" : "Administrador"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "user" && confirmNew ? (
+        <div className="space-y-4">
+          <p className="rounded-xl bg-paper p-4 text-center">
+            El usuario <strong>{confirmNew.username}</strong> no existe.
+            <br />
+            ¿Crearlo en el grupo <strong>{confirmNew.groupName}</strong>?
+          </p>
+          {error && <p className="text-sm text-accent">{error}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" className={btn.secondary} onClick={() => setConfirmNew(null)} disabled={busy}>
+              Corregir
+            </button>
+            <button type="button" className={btn.primary} onClick={createNew} disabled={busy}>
+              {busy ? <Spinner /> : "Crear y entrar"}
+            </button>
+          </div>
+        </div>
+      ) : mode === "user" ? (
+        <form onSubmit={submit} className="space-y-4">
+          <Field
+            label="Usuario"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+          />
+          <Field
+            label="Contraseña del grupo"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+          {error && <p className="text-sm text-accent">{error}</p>}
+          <button type="submit" className={`${btn.dark} w-full`} disabled={busy || !username.trim() || !password}>
+            {busy ? <Spinner /> : "Entrar"}
+          </button>
+          <p className="text-center text-sm text-muted">¿Primera vez? Escribe el usuario que quieras y la contraseña de tu grupo.</p>
+        </form>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-center text-sm text-muted">Solo para correos autorizados como administrador.</p>
+          <button type="button" className={`${btn.secondary} w-full gap-3`} onClick={google} disabled={busy}>
+            {busy ? <Spinner /> : <GoogleIcon />}
+            Entrar con Google
+          </button>
+          {error && <p className="text-sm text-accent">{error}</p>}
+        </div>
+      )}
+    </Screen>
+  );
+}
+
+/** Muestra login, "Sin acceso" o el contenido según el estado de la sesión. */
+export function AuthGate({ children }: { children: ReactNode }) {
+  const { state, signOut } = useAuth();
 
   switch (state.status) {
     case "loading":
       return (
         <Screen>
           <Logo />
-          <p className="text-muted">Cargando…</p>
+          <p className="text-center text-muted">Cargando…</p>
         </Screen>
       );
 
@@ -66,38 +210,30 @@ export function AuthGate({ children }: { children: ReactNode }) {
       return (
         <Screen>
           <Logo />
-          <h1 className="mb-2 text-xl font-bold">Falta configurar Firebase</h1>
-          <p className="text-muted">
+          <h1 className="mb-2 text-center text-xl font-bold">Falta configurar Firebase</h1>
+          <p className="text-center text-muted">
             Crea el archivo <code>.env.local</code> a partir de <code>.env.local.example</code> y reinicia la app.
           </p>
         </Screen>
       );
 
     case "signedOut":
-      return (
-        <Screen>
-          <Logo />
-          <h1 className="mb-1 text-2xl font-bold">Carnets</h1>
-          <p className="mb-8 text-muted">Escáner de carnets por contratista</p>
-          <button type="button" className={buttonPrimary} onClick={handleSignIn} disabled={busy}>
-            <GoogleIcon />
-            {busy ? "Abriendo Google…" : "Iniciar sesión con Google"}
-          </button>
-          {error && <p className="mt-4 text-sm text-accent">{error}</p>}
-          <p className="mt-6 text-sm text-muted">Solo pueden entrar usuarios autorizados.</p>
-        </Screen>
-      );
+      return <LoginForm />;
 
     case "denied":
       return (
         <Screen>
           <Logo />
-          <h1 className="mb-2 text-2xl font-bold">Sin acceso</h1>
-          <p className="mb-1 text-muted">Tu cuenta no está autorizada para usar esta app:</p>
-          <p className="mb-6 font-medium break-all">{state.user.email}</p>
-          <p className="mb-6 text-sm text-muted">Pide a un administrador que agregue tu correo.</p>
-          <button type="button" className={buttonSecondary} onClick={() => signOut()}>
-            Usar otra cuenta
+          <h1 className="mb-2 text-center text-2xl font-bold">Sin acceso</h1>
+          <p className="mb-6 text-center text-muted">
+            {state.reason === "admin"
+              ? `${state.user.email ?? "Este correo"} no está autorizado como administrador.`
+              : state.reason === "noGroup"
+                ? "Tu usuario no tiene un grupo asignado. Pide a un administrador que te asigne uno."
+                : "Este usuario no está autorizado o fue desactivado. Pide acceso a un administrador."}
+          </p>
+          <button type="button" className={`${btn.secondary} w-full`} onClick={() => signOut()}>
+            Volver a la entrada
           </button>
         </Screen>
       );
@@ -106,18 +242,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
       return (
         <Screen>
           <Logo />
-          <h1 className="mb-2 text-xl font-bold">Algo salió mal</h1>
-          <p className="mb-6 text-muted">{state.message}</p>
-          <button type="button" className={buttonPrimary} onClick={() => window.location.reload()}>
+          <h1 className="mb-2 text-center text-xl font-bold">Algo salió mal</h1>
+          <p className="mb-6 text-center text-muted">{state.message}</p>
+          <button type="button" className={`${btn.dark} w-full`} onClick={() => window.location.reload()}>
             Reintentar
           </button>
-          <button type="button" className={`${buttonSecondary} mt-3`} onClick={() => signOut()}>
+          <button type="button" className={`${btn.secondary} mt-3 w-full`} onClick={() => signOut()}>
             Cerrar sesión
           </button>
         </Screen>
       );
 
     case "allowed":
-      return <>{children}</>;
+      return (
+        <GroupProvider>
+          {children}
+          <SyncStatus />
+        </GroupProvider>
+      );
   }
 }

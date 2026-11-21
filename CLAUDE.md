@@ -23,9 +23,10 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 ## 2. Stack (todo en el plan gratuito Spark de Firebase)
 
 - **Next.js** (App Router) + **TypeScript** + **Tailwind CSS**
-- **Firebase**: Authentication (Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
+- **Firebase**: Authentication (usuarios: usuario + contraseña del grupo; administradores: Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
 - **jsPDF** para generar el PDF, **JSZip** para el ZIP
-- **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`
+- **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`. Sus archivos se copian a `public/tesseract` en cada build (`scripts/copy-tesseract.mjs`) y se sirven desde el propio sitio.
+- **Sin conexión**: Firestore con almacenamiento local (`persistentLocalCache`): lo guardado aparece al instante y se sube en segundo plano (`lib/sync.ts`, indicador "por subir"). Al cerrar sesión se borran los datos del celular. **Service worker** (`public/sw.js`) para abrir la app al instante y sin internet.
 - **PWA**: manifest + íconos, para instalarla en la pantalla de inicio
 - Despliegue: **Firebase Hosting** (exportación estática: `output: 'export'`)
 
@@ -39,24 +40,44 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 
 ```
 contractors/{contractorId}
+  groupId: string                    // grupo dueño de los datos
   name: string
+  cardCount: number
   createdAt: Timestamp
   createdBy: uid
 
 cards/{cardId}                       // documento LIVIANO, el que se lista
+  groupId: string
   contractorId: string
   name: string                       // "Juan Andrés Pérez Soto"
   rut: string | null                 // "12.345.678-5"
   thumb: string                      // miniatura del frontal: data URL JPEG, 240 px, ~15 KB
   createdAt: Timestamp
   createdBy: uid
+  createdByName: string              // usuario que lo escaneó
 
 cards/{cardId}/images/main           // documento PESADO, se lee solo al ver o descargar
   front: string                      // data URL JPEG
   back: string                       // data URL JPEG
 
-allowedUsers/{email}                 // lista blanca de usuarios autorizados
-  role: "admin" | "user"
+groups/{groupId}                     // grupos: cada uno con su contraseña; sus usuarios comparten datos
+  name: string
+
+groupSecrets/{groupId}               // solo admins
+  password: string                   // contraseña común del grupo
+
+groupKeys/{sha256("carnets-v1:" + contraseña)}   // la contraseña identifica al grupo
+  groupId: string                    // se lee por ID (hay que saber la contraseña); no se puede listar
+  name: string
+
+users/{uid}                          // usuarios: se registran solos la primera vez
+  username: string                   // "juan.perez" (= parte local de su correo interno)
+  groupId: string
+  joinKey: string                    // clave con la que se registró
+  active: boolean                    // false = desactivado, no puede entrar
+
+admins/{email}                       // correos de Google autorizados como administrador
+  addedBy: string
 ```
 
 **Reglas de tamaño de las imágenes** (Firestore permite máximo 1 MiB por documento):
@@ -67,11 +88,13 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 
 ## 4. Seguridad
 
-- Inicio de sesión obligatorio con Google.
-- Solo pueden entrar los correos que estén en `allowedUsers`. Los demás ven "Sin acceso".
-- **Reglas de Firestore** (`firestore.rules`): leer y escribir solo si `request.auth != null` y existe `allowedUsers/{request.auth.token.email}`. La regla cubre también la subcolección `images`.
-- `allowedUsers` solo se puede editar desde la consola de Firebase (sin escritura desde la app).
-- Solo un usuario con rol `admin` puede eliminar contratistas.
+- La entrada tiene dos opciones:
+  - **Usuario**: usuario + **contraseña de su grupo** (Firebase Auth con correo interno `usuario@usuarios.carnets.app`). **No los crea el admin**: la primera vez, la contraseña indica el grupo (`groupKeys`) y la app pregunta "¿Crear el usuario X en el grupo Y?".
+  - **Administrador**: **Google**, solo correos autorizados en `admins/{email}`.
+- **Grupos**: cada grupo tiene su contraseña; los usuarios del mismo grupo comparten datos y no ven los de otros grupos. Los admins ven todos los grupos (selector en Inicio).
+- Los admins, en **Configuración**: crean grupos y ven/cambian su contraseña (la app actualiza la de todos sus usuarios y su clave), desactivan o cambian de grupo usuarios y autorizan otros correos como admin. Dos grupos no pueden tener la misma contraseña.
+- **Usuarios agregan y editan**: crean contratistas, escanean carnets, renombran contratistas y corrigen nombre/RUT de un carnet. **Eliminar es solo de admins** (eliminar carnet, vaciar carpeta, eliminar contratista).
+- **Reglas de Firestore** (`firestore.rules`): todo dato se filtra por `groupId`; `groupSecrets` y `admins` solo para admins; un admin no puede quitarse a sí mismo.
 - Al eliminar un carnet, borrar también `images/main`. Al eliminar un contratista, borrar todos sus carnets y sus imágenes.
 
 ## 5. Pantallas
@@ -82,8 +105,8 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 - Buscador que encuentre contratistas y también trabajadores dentro de ellos.
 
 ### 5.2 Carpeta de un contratista
-- Título con el nombre y acciones: **Renombrar**, **Descargar todo (ZIP)** y **Eliminar** (solo admin, con confirmación).
-- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila.
+- Título con el nombre y acciones: **Renombrar**, **Seleccionar varios** (compartir, PDF único o ZIP de los marcados), **PDF único con todos**, **Descargar todo (ZIP)**, **Vaciar carpeta** (borra todos sus carnets, la carpeta queda; solo admin) y **Eliminar** (solo admin). Todo lo que borra pide confirmación.
+- Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila y, para admins, **papelera** para eliminar el carnet y la línea **"Registrado por usuario"** (en carnets antiguos sin `createdByName` se busca por `createdBy`).
 - Buscador por nombre o RUT.
 - Botón flotante **"+ Escanear carnet"**.
 
@@ -96,9 +119,19 @@ allowedUsers/{email}                 // lista blanca de usuarios autorizados
 6. Aviso: **"Revisa que los datos estén correctos"**. Lo que el usuario escriba a mano nunca se sobrescribe.
 7. Botón **"Guardar"**, activo solo cuando hay nombre y ambas fotos. Guarda en Firestore según la sección 3.
 
+**Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
+
+**Flujo rápido**: la captura automática viene activada; al capturar el frontal empieza su lectura (mientras se da vuelta el carnet). Con **guardado rápido** (Configuración), si se leyó el nombre y un RUT válido, guarda solo tras 2 s (botón "Corregir" para detenerlo). Botones **"Guardar y escanear otro"** (vuelve a la cámara, sin capturar el carnet anterior hasta que salga del marco) y **"Guardar y terminar"**.
+
+**Enfoque** (`lib/camera.ts`): el marco ocupa el 72 % del ancho para que el celular quede a una distancia en que puede enfocar; se pide resolución 4K. Se elige la cámara trasera principal (no gran angular/tele) y se activa el enfoque continuo. Donde el navegador lo permite (Chrome en Android): **toque para enfocar**, **zoom** y botón para **cambiar de cámara** (se recuerda la elegida). En iPhone el sistema enfoca solo.
+
 ### 5.4 Detalle de un carnet
 - Lee `images/main` y muestra ambos lados en grande, junto al nombre del archivo.
-- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. También **Eliminar**.
+- Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin). Solo los admins ven quién lo registró y quién lo editó por última vez.
+
+### 5.5 Configuración
+- Captura automática, lectura automática y guardado rápido (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
+- Cuenta y cerrar sesión. Solo admin: grupos, datos sin grupo, usuarios y administradores.
 
 ## 6. Lectura automática
 
@@ -125,10 +158,12 @@ Ejecutar en este orden y quedarse con el primer resultado válido de cada dato:
 
 - Función `buildPdf(card, images, contractorName) => Blob` en `lib/pdf.ts`.
 - Hoja A4 vertical, márgenes de 15 mm.
-- Encabezado: **nombre** en negrita, y debajo `Contratista: X · RUT: Y · Fecha: dd-mm-aaaa` (la fecha del escaneo).
-- **Lado frontal** en la mitad superior y **lado trasero** en la inferior, cada uno con su etiqueta y respetando la proporción.
+- Encabezado de una línea, en negrita y 13 pt: `Contratista: X · RUT: Y · Fecha: dd-mm-aaaa` (la fecha del escaneo). Sin el nombre: ya está en el archivo y en las fotos.
+- **Lado frontal** y debajo el **lado trasero**, centrados y sin etiquetas, a tamaño parecido al carnet real (máximo **96 × 60,6 mm** cada uno, 10 mm entre ambos), respetando la proporción.
 - Nombre del archivo: `Nombre Apellido - Contratista.pdf`, sin los caracteres `\ / : * ? " < > |`.
-- ZIP: generar los PDFs uno por uno (leyendo cada `images/main`) y empaquetarlos en `Contratista.zip`. Mostrar el progreso ("3 de 12…"). Si dos archivos tienen el mismo nombre, agregar `(2)`, `(3)`, etc.
+- **PDF único**: `buildCombinedPdf`, una página por carnet, archivo `Contratista - N carnets.pdf`.
+- **Compartir varios** (Web Share API con varios archivos); si el navegador no lo permite, ZIP.
+- ZIP: las fotos se leen de 4 en 4 en paralelo (`lib/pool.ts`) y se empaquetan en `Contratista.zip`. Mostrar el progreso ("3 de 12…"). Si dos archivos tienen el mismo nombre, agregar `(2)`, `(3)`, etc.
 
 ## 8. Diseño
 
