@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { analyzeAlignment, frameRect as baseFrameRect, SAMPLE_MARGIN, toGray } from "@/lib/align";
+import { analyzeAlignment, FLIP_DIFF, frameRect as baseFrameRect, innerGray, SAMPLE_MARGIN, signature, signatureDiff, toGray } from "@/lib/align";
 import { focusAt, openBackCamera, setZoom, type CameraInfo } from "@/lib/camera";
 import { cropVideo, fileToCanvas, makeCanvas } from "@/lib/image";
 import { useSettings } from "@/lib/settings";
@@ -31,6 +31,8 @@ const CAMERA_FILL = 0.72;
 const frameRect = (cw: number, ch: number) => baseFrameRect(cw, ch, CAMERA_FILL);
 const BLUR_LIMIT = 9; // nitidez mínima del interior
 const AUTO_MS = 1000; // tiempo encuadrado antes de la captura automática
+const MISS_TO_REARM = 8; // ~1 s fuera del marco para volver a habilitar la captura automática
+const MIN_GAP_MS = 2500; // tiempo mínimo entre dos capturas automáticas
 
 /** Parte del video que queda bajo un rectángulo del contenedor (video con object-cover). */
 function videoRect(v: HTMLVideoElement, cw: number, ch: number, r: { x: number; y: number; w: number; h: number }) {
@@ -138,6 +140,9 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
     return () => ro.disconnect();
   }, []);
 
+  // Estado de la captura automática, compartido con la captura manual.
+  const auto = useRef({ armed: !startDisarmed, lastShot: 0, lastSig: null as Float32Array | null, sig: null as Float32Array | null });
+
   const capture = useCallback(() => {
     const v = videoRef.current;
     const el = boxRef.current;
@@ -147,6 +152,10 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
     const sx = Math.max(0, r.sx);
     const sy = Math.max(0, r.sy);
     const canvas = cropVideo(v, sx, sy, Math.min(v.videoWidth - sx, r.sw), Math.min(v.videoHeight - sy, r.sh));
+    // Recordar cómo se veía este lado: la siguiente captura automática exige otro lado.
+    auto.current.lastSig = auto.current.sig;
+    auto.current.lastShot = performance.now();
+    auto.current.armed = false;
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
     onCapture(canvas);
@@ -164,9 +173,7 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
     let alignedRun = 0;
     let missRun = 0;
     let alignedSince = 0;
-    // Tras una captura, esperar a que el carnet salga del marco (para dar vuelta) antes de otra automática.
-    let armed = !startDisarmed;
-    let lastShot = 0;
+    const a = auto.current;
     const id = window.setInterval(() => {
       const v = videoRef.current;
       const el = boxRef.current;
@@ -178,6 +185,8 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
       ctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, sample.width, sample.height);
       const gray = toGray(ctx.getImageData(0, 0, sample.width, sample.height).data);
       const res = analyzeAlignment(gray, sample.width, sample.height);
+      const inner = innerGray(gray, sample.width, sample.height);
+      a.sig = signature(inner.gray, inner.w, inner.h);
 
       if (res.aligned) {
         alignedRun++;
@@ -188,7 +197,8 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
       }
       const now = performance.now();
       const isAligned = alignedRun >= 2;
-      if (missRun >= 3) armed = true;
+      // Tras una captura, el carnet debe salir del marco ~1 s (para darlo vuelta).
+      if (missRun >= MISS_TO_REARM) a.armed = true;
       if (isAligned) {
         if (!alignedSince) alignedSince = now;
       } else if (missRun >= 2) {
@@ -197,15 +207,23 @@ export function CameraCapture({ title, subtitle, startDisarmed = false, onCaptur
       const next: Fit = isAligned ? (res.sharpness < BLUR_LIMIT ? "blurry" : "aligned") : alignedSince ? "aligned" : "searching";
       setFit(next);
 
-      if (autoCapture && armed && next === "aligned" && alignedSince && now - alignedSince >= AUTO_MS && now - lastShot > 1500) {
-        armed = false;
-        lastShot = now;
+      // Y lo que está en el marco debe ser distinto de lo último capturado (el otro lado).
+      const isNewSide = !a.lastSig || signatureDiff(a.sig, a.lastSig) > FLIP_DIFF;
+      if (
+        autoCapture &&
+        a.armed &&
+        isNewSide &&
+        next === "aligned" &&
+        alignedSince &&
+        now - alignedSince >= AUTO_MS &&
+        now - a.lastShot > MIN_GAP_MS
+      ) {
         alignedSince = 0;
         captureRef.current();
       }
     }, 120);
     return () => window.clearInterval(id);
-  }, [status, cropSource, autoCapture, startDisarmed]);
+  }, [status, cropSource, autoCapture]);
 
   async function pickFile(file: File | undefined) {
     if (!file) return;

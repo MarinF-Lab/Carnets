@@ -54,3 +54,29 @@ describe("analyzeAlignment", () => {
     expect(analyzeAlignment(scene(), W, H).sharpness).toBeGreaterThan(analyzeAlignment(scene(0, 0, 1, { blur: true }), W, H).sharpness);
   });
 });
+
+import { FLIP_DIFF, signature, signatureDiff } from "@/lib/align";
+
+describe("signature", () => {
+  /** Lado A: foto a la izquierda. Lado B: bloque de texto abajo (como la MRZ). */
+  function side(kind: "A" | "B", shift = 0, light = 0) {
+    const g = new Uint8ClampedArray(W * H).fill(200 + light);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const xx = x - shift;
+        const dark =
+          kind === "A" ? xx > 20 && xx < 70 && y > 25 && y < 95 : y > 85 && y < 115 && xx > 15 && xx < 185 && y % 6 < 3;
+        if (dark) g[y * W + x] = 60 + light;
+      }
+    return signature(g, W, H);
+  }
+
+  it("el mismo lado con un pequeño movimiento o cambio de luz se parece", () => {
+    expect(signatureDiff(side("A"), side("A", 3))).toBeLessThan(FLIP_DIFF);
+    expect(signatureDiff(side("A"), side("A", 0, 30))).toBeLessThan(FLIP_DIFF);
+  });
+
+  it("el otro lado del carnet es distinto", () => {
+    expect(signatureDiff(side("A"), side("B"))).toBeGreaterThan(FLIP_DIFF);
+  });
+});

@@ -112,3 +112,50 @@ export function toGray(rgba: Uint8ClampedArray): Uint8ClampedArray {
   }
   return out;
 }
+
+/**
+ * Huella de una imagen en gris: promedio por bloques (cols × rows), sin el brillo
+ * medio, para comparar si dos capturas muestran lo mismo aunque cambie la luz.
+ */
+export function signature(gray: Uint8ClampedArray | Uint8Array, w: number, h: number, cols = 24, rows = 15): Float32Array {
+  const sig = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const y0 = Math.floor((r * h) / rows);
+    const y1 = Math.max(y0 + 1, Math.floor(((r + 1) * h) / rows));
+    for (let c = 0; c < cols; c++) {
+      const x0 = Math.floor((c * w) / cols);
+      const x1 = Math.max(x0 + 1, Math.floor(((c + 1) * w) / cols));
+      let s = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) s += gray[y * w + x];
+      sig[r * cols + c] = s / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  const mean = sig.reduce((a, b) => a + b, 0) / sig.length;
+  for (let i = 0; i < sig.length; i++) sig[i] -= mean;
+  return sig;
+}
+
+/** Diferencia media (0–255) entre dos huellas. */
+export function signatureDiff(a: Float32Array, b: Float32Array): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+}
+
+/**
+ * Diferencia mínima para considerar que el carnet se dio vuelta (otro lado).
+ * Medido: el mismo lado movido o con otra luz da 4–9; el otro lado, 18–24.
+ */
+export const FLIP_DIFF = 11;
+
+/** Recorta de la muestra (marco + margen) solo el interior del marco. */
+export function innerGray(gray: Uint8ClampedArray | Uint8Array, w: number, h: number) {
+  const m = SAMPLE_MARGIN / (1 + 2 * SAMPLE_MARGIN);
+  const x0 = Math.round(w * m);
+  const y0 = Math.round(h * m);
+  const iw = w - 2 * x0;
+  const ih = h - 2 * y0;
+  const out = new Uint8ClampedArray(iw * ih);
+  for (let y = 0; y < ih; y++) out.set(gray.subarray((y + y0) * w + x0, (y + y0) * w + x0 + iw), y * iw);
+  return { gray: out, w: iw, h: ih };
+}

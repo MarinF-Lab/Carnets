@@ -15,14 +15,19 @@ export type Settings = {
 };
 
 const KEY = "carnets.settings";
-const DEFAULTS: Settings = { autoCapture: true, autoRead: true, quickSave: true, theme: "system" };
+const DEFAULTS: Settings = { autoCapture: true, autoRead: true, quickSave: false, theme: "system" };
+/** Versión de las preferencias: al subirla se descartan valores por defecto antiguos. */
+const VERSION = 2;
 const listeners = new Set<() => void>();
 let cache: Settings | null = null;
 
 function read(): Settings {
   if (cache) return cache;
   try {
-    cache = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // v1 tenía el guardado rápido activado por defecto: volver a desactivarlo.
+    if ((stored.v ?? 1) < 2) delete stored.quickSave;
+    cache = { ...DEFAULTS, ...stored };
   } catch {
     cache = { ...DEFAULTS };
   }
@@ -38,7 +43,7 @@ export function applyTheme(theme: Theme) {
 export function updateSettings(patch: Partial<Settings>) {
   cache = { ...read(), ...patch };
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache));
+    localStorage.setItem(KEY, JSON.stringify({ ...cache, v: VERSION }));
   } catch {
     // sin almacenamiento: queda solo en memoria
   }
