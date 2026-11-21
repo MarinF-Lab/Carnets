@@ -89,6 +89,12 @@ export default function SettingsPage() {
           checked={settings.autoRead}
           onChange={(v) => updateSettings({ autoRead: v })}
         />
+        <Toggle
+          label="Guardado rápido"
+          description="Si se leyeron el nombre y un RUT válido, guarda solo en 2 segundos y pasa al siguiente."
+          checked={settings.quickSave && settings.autoRead}
+          onChange={(v) => updateSettings({ quickSave: v })}
+        />
       </Section>
 
       <Section title="Apariencia">

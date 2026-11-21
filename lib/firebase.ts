@@ -1,6 +1,15 @@
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
-import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import {
+  clearIndexedDbPersistence,
+  connectFirestoreEmulator,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  terminate,
+  type Firestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -19,6 +28,7 @@ const useEmulators = process.env.NEXT_PUBLIC_USE_EMULATORS === "1";
 let emulatorsConnected = false;
 
 let app: FirebaseApp | undefined;
+let firestore: Firestore | undefined;
 
 export function firebaseApp(): FirebaseApp {
   if (!firebaseConfigured) {
@@ -28,7 +38,7 @@ export function firebaseApp(): FirebaseApp {
   if (useEmulators && !emulatorsConnected) {
     emulatorsConnected = true;
     connectAuthEmulator(getAuth(app), "http://127.0.0.1:9099", { disableWarnings: true });
-    connectFirestoreEmulator(getFirestore(app), "127.0.0.1", 8080);
+    connectFirestoreEmulator(db(), "127.0.0.1", 8080);
   }
   return app;
 }
@@ -38,7 +48,28 @@ export function auth(): Auth {
   return getAuth(firebaseApp());
 }
 
-/** Firestore (solo en el navegador). No se usa Firebase Storage. */
+/**
+ * Firestore (solo en el navegador). No se usa Firebase Storage.
+ * Con almacenamiento local: lo guardado aparece al instante y se sube en segundo
+ * plano; también funciona sin señal y sincroniza al volver.
+ */
 export function db(): Firestore {
-  return getFirestore(firebaseApp());
+  if (firestore) return firestore;
+  const a = app ?? firebaseApp();
+  if (firestore) return firestore;
+  try {
+    firestore = initializeFirestore(a, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  } catch {
+    firestore = getFirestore(a); // ya inicializado, o el navegador no permite almacenamiento local
+  }
+  return firestore;
+}
+
+/** Borra los datos guardados en este dispositivo (al cerrar sesión). */
+export async function clearLocalData(): Promise<void> {
+  if (!firestore) return;
+  const f = firestore;
+  firestore = undefined;
+  await terminate(f).catch(() => undefined);
+  await clearIndexedDbPersistence(f).catch(() => undefined);
 }

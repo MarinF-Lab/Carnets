@@ -9,11 +9,13 @@ export type Settings = {
   autoCapture: boolean;
   /** Lee nombre y RUT automáticamente. */
   autoRead: boolean;
+  /** Si la lectura salió completa, guarda solo tras 2 s (con opción de corregir). */
+  quickSave: boolean;
   theme: Theme;
 };
 
 const KEY = "carnets.settings";
-const DEFAULTS: Settings = { autoCapture: false, autoRead: true, theme: "system" };
+const DEFAULTS: Settings = { autoCapture: true, autoRead: true, quickSave: true, theme: "system" };
 const listeners = new Set<() => void>();
 let cache: Settings | null = null;
 

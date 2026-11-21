@@ -13,7 +13,8 @@ import {
   type User,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { auth, db, firebaseConfigured } from "@/lib/firebase";
+import { auth, clearLocalData, db, firebaseConfigured } from "@/lib/firebase";
+import { pendingWrites } from "@/lib/sync";
 import { findGroupByPassword, isValidUsername, MIN_PASSWORD, normalizeUsername, usernameToEmail, UserError } from "@/lib/users";
 
 export type AuthState =
@@ -179,7 +180,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    const pending = pendingWrites();
+    if (
+      pending > 0 &&
+      !window.confirm(`Hay ${pending} ${pending === 1 ? "cambio" : "cambios"} sin subir. Si sales ahora se perderán. ¿Salir igual?`)
+    ) {
+      return;
+    }
     await fbSignOut(auth());
+    // Los carnets son datos sensibles: no dejarlos guardados en el celular.
+    await clearLocalData();
+    window.location.reload();
   }, []);
 
   return <AuthContext.Provider value={{ state, signInUser, registerUser, signInAdmin, signOut }}>{children}</AuthContext.Provider>;

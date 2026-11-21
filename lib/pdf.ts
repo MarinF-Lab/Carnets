@@ -1,5 +1,6 @@
 /** PDF del carnet (sección 7): se genera al momento y no se guarda. */
 import type { Card, CardImages } from "./db";
+import { mapLimit } from "./pool";
 import { formatDate } from "./text";
 
 /** "Nombre Apellido - Contratista.pdf", sin \ / : * ? " < > | */
@@ -37,19 +38,13 @@ const CARD_W = 96;
 const CARD_H = 60.6;
 const GAP = 10;
 
-export async function buildPdf(
-  card: Pick<Card, "name" | "rut" | "createdAt">,
-  images: CardImages,
-  contractorName: string,
-): Promise<Blob> {
-  const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+type JsPdf = InstanceType<typeof import("jspdf").jsPDF>;
+
+/** Dibuja una página: encabezado y ambos lados del carnet. */
+function drawCardPage(pdf: JsPdf, card: Pick<Card, "rut" | "createdAt">, images: CardImages, contractorName: string) {
   const W = 210;
   const M = 15;
   const contentW = W - 2 * M;
-
-  pdf.setProperties({ title: card.name, subject: `Carnet - ${contractorName}` });
-
   // Encabezado: solo contratista, RUT y fecha (el nombre ya está en el archivo y en las fotos).
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(13);
@@ -70,8 +65,75 @@ export async function buildPdf(
     pdf.addImage(data, "JPEG", (W - w) / 2, y, w, h, undefined, "FAST");
     y += h + GAP;
   }
+}
 
+async function newPdf(): Promise<JsPdf> {
+  const { jsPDF } = await import("jspdf");
+  return new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+}
+
+export async function buildPdf(
+  card: Pick<Card, "name" | "rut" | "createdAt">,
+  images: CardImages,
+  contractorName: string,
+): Promise<Blob> {
+  const pdf = await newPdf();
+  pdf.setProperties({ title: card.name, subject: `Carnet - ${contractorName}` });
+  drawCardPage(pdf, card, images, contractorName);
   return pdf.output("blob");
+}
+
+/** Lee las fotos de varios carnets, de 4 en 4 en paralelo. */
+function loadMany(
+  cards: Card[],
+  loadImages: (id: string) => Promise<CardImages | null>,
+  onProgress?: (done: number, total: number) => void,
+) {
+  return mapLimit(cards, 4, async (card) => ({ card, images: await loadImages(card.id) }), onProgress);
+}
+
+/** Un solo PDF con todos los carnets (una página por carnet). */
+export async function buildCombinedPdf(
+  cards: Card[],
+  loadImages: (id: string) => Promise<CardImages | null>,
+  contractorName: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Blob> {
+  const loaded = await loadMany(cards, loadImages, onProgress);
+  const pdf = await newPdf();
+  pdf.setProperties({ title: `Carnets - ${contractorName}` });
+  let first = true;
+  for (const { card, images } of loaded) {
+    if (!images) continue;
+    if (!first) pdf.addPage();
+    first = false;
+    drawCardPage(pdf, card, images, contractorName);
+  }
+  return pdf.output("blob");
+}
+
+/** Un archivo PDF por carnet (para compartir varios a la vez). */
+export async function buildPdfFiles(
+  cards: Card[],
+  loadImages: (id: string) => Promise<CardImages | null>,
+  contractorName: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<File[]> {
+  const loaded = await loadMany(cards, loadImages, onProgress);
+  const used = new Set<string>();
+  const files: File[] = [];
+  for (const { card, images } of loaded) {
+    if (!images) continue;
+    const blob = await buildPdf(card, images, contractorName);
+    files.push(new File([blob], uniqueName(pdfFileName(card.name, contractorName), used), { type: "application/pdf" }));
+  }
+  return files;
+}
+
+/** Nombre del PDF único: "Contratista - 12 carnets.pdf". */
+export function combinedFileName(contractorName: string, count: number): string {
+  const clean = contractorName.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim() || "Contratista";
+  return `${clean} - ${count} ${count === 1 ? "carnet" : "carnets"}.pdf`;
 }
 
 export async function buildZip(
@@ -82,16 +144,6 @@ export async function buildZip(
 ): Promise<Blob> {
   const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
-  const used = new Set<string>();
-  onProgress(0, cards.length);
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    const images = await loadImages(card.id);
-    if (images) {
-      const blob = await buildPdf(card, images, contractorName);
-      zip.file(uniqueName(pdfFileName(card.name, contractorName), used), blob);
-    }
-    onProgress(i + 1, cards.length);
-  }
+  for (const file of await buildPdfFiles(cards, loadImages, contractorName, onProgress)) zip.file(file.name, file);
   return zip.generateAsync({ type: "blob" });
 }

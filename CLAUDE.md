@@ -25,7 +25,8 @@ Los carnets son datos personales sensibles: solo los usuarios autorizados pueden
 - **Next.js** (App Router) + **TypeScript** + **Tailwind CSS**
 - **Firebase**: Authentication (usuarios: usuario + contraseña del grupo; administradores: Google) y **Firestore**. **No usar Firebase Storage** (requiere el plan Blaze).
 - **jsPDF** para generar el PDF, **JSZip** para el ZIP
-- **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`
+- **OCR**: **Tesseract.js** (gratis, se ejecuta en el navegador) con el idioma `spa`. Sus archivos se copian a `public/tesseract` en cada build (`scripts/copy-tesseract.mjs`) y se sirven desde el propio sitio.
+- **Sin conexión**: Firestore con almacenamiento local (`persistentLocalCache`): lo guardado aparece al instante y se sube en segundo plano (`lib/sync.ts`, indicador "por subir"). Al cerrar sesión se borran los datos del celular. **Service worker** (`public/sw.js`) para abrir la app al instante y sin internet.
 - **PWA**: manifest + íconos, para instalarla en la pantalla de inicio
 - Despliegue: **Firebase Hosting** (exportación estática: `output: 'export'`)
 
@@ -104,7 +105,7 @@ admins/{email}                       // correos de Google autorizados como admin
 - Buscador que encuentre contratistas y también trabajadores dentro de ellos.
 
 ### 5.2 Carpeta de un contratista
-- Título con el nombre y acciones: **Renombrar**, **Descargar todo (ZIP)**, **Vaciar carpeta** (borra todos sus carnets, la carpeta queda; solo admin) y **Eliminar** (solo admin). Todo lo que borra pide confirmación.
+- Título con el nombre y acciones: **Renombrar**, **Seleccionar varios** (compartir, PDF único o ZIP de los marcados), **PDF único con todos**, **Descargar todo (ZIP)**, **Vaciar carpeta** (borra todos sus carnets, la carpeta queda; solo admin) y **Eliminar** (solo admin). Todo lo que borra pide confirmación.
 - Lista de trabajadores: miniatura, nombre, RUT y fecha. Botón **PDF** en cada fila y, para admins, **papelera** para eliminar el carnet y la línea **"Registrado por usuario"** (en carnets antiguos sin `createdByName` se busca por `createdBy`).
 - Buscador por nombre o RUT.
 - Botón flotante **"+ Escanear carnet"**.
@@ -120,7 +121,7 @@ admins/{email}                       // correos de Google autorizados como admin
 
 **Encuadre**: el marco se pone verde cuando los bordes del carnet calzan (`lib/align.ts`), avisa si la imagen está borrosa y, si está activada la **captura automática**, saca la foto tras 1 s encuadrado. Las fotos de la galería se encuadran a mano (mover y acercar) en `CropEditor`.
 
-**Recorte fino** (`lib/refine.ts`): tras capturar (o encuadrar desde la galería) se detectan los bordes reales del carnet (líneas continuas más externas de la franja exterior) y se recorta 0,5 % del ancho hacia adentro (la misma distancia en todos los lados); las esquinas redondeadas se rellenan con el color del carnet. Un par de bordes opuestos solo se usa si se detectan ambos; si no, recorte fijo de 1 %.
+**Flujo rápido**: la captura automática viene activada; al capturar el frontal empieza su lectura (mientras se da vuelta el carnet). Con **guardado rápido** (Configuración), si se leyó el nombre y un RUT válido, guarda solo tras 2 s (botón "Corregir" para detenerlo). Botones **"Guardar y escanear otro"** (vuelve a la cámara, sin capturar el carnet anterior hasta que salga del marco) y **"Guardar y terminar"**.
 
 **Enfoque** (`lib/camera.ts`): el marco ocupa el 72 % del ancho para que el celular quede a una distancia en que puede enfocar; se pide resolución 4K. Se elige la cámara trasera principal (no gran angular/tele) y se activa el enfoque continuo. Donde el navegador lo permite (Chrome en Android): **toque para enfocar**, **zoom** y botón para **cambiar de cámara** (se recuerda la elegida). En iPhone el sistema enfoca solo.
 
@@ -129,7 +130,7 @@ admins/{email}                       // correos de Google autorizados como admin
 - Botones **Descargar PDF** y **Compartir** (Web Share API con el archivo PDF): ambos generan el PDF en el momento. **Editar** nombre y RUT (todos) y **Eliminar** (solo admin). Solo los admins ven quién lo registró y quién lo editó por última vez.
 
 ### 5.5 Configuración
-- Captura automática y lectura automática (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
+- Captura automática, lectura automática y guardado rápido (sí/no), tema (sistema/claro/oscuro): se guardan en el dispositivo.
 - Cuenta y cerrar sesión. Solo admin: grupos, datos sin grupo, usuarios y administradores.
 
 ## 6. Lectura automática
@@ -160,7 +161,9 @@ Ejecutar en este orden y quedarse con el primer resultado válido de cada dato:
 - Encabezado de una línea, en negrita y 13 pt: `Contratista: X · RUT: Y · Fecha: dd-mm-aaaa` (la fecha del escaneo). Sin el nombre: ya está en el archivo y en las fotos.
 - **Lado frontal** y debajo el **lado trasero**, centrados y sin etiquetas, a tamaño parecido al carnet real (máximo **96 × 60,6 mm** cada uno, 10 mm entre ambos), respetando la proporción.
 - Nombre del archivo: `Nombre Apellido - Contratista.pdf`, sin los caracteres `\ / : * ? " < > |`.
-- ZIP: generar los PDFs uno por uno (leyendo cada `images/main`) y empaquetarlos en `Contratista.zip`. Mostrar el progreso ("3 de 12…"). Si dos archivos tienen el mismo nombre, agregar `(2)`, `(3)`, etc.
+- **PDF único**: `buildCombinedPdf`, una página por carnet, archivo `Contratista - N carnets.pdf`.
+- **Compartir varios** (Web Share API con varios archivos); si el navegador no lo permite, ZIP.
+- ZIP: las fotos se leen de 4 en 4 en paralelo (`lib/pool.ts`) y se empaquetan en `Contratista.zip`. Mostrar el progreso ("3 de 12…"). Si dos archivos tienen el mismo nombre, agregar `(2)`, `(3)`, etc.
 
 ## 8. Diseño
 

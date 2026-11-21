@@ -58,6 +58,11 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Con la cámara abierta, lo pendiente se muestra bajo el título de la cámara. */
+body[data-camera] .sync-pill {
+  display: none;
+}
+
 /* Anillo del toque para enfocar */
 @keyframes focusRing {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }

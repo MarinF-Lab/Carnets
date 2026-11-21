@@ -11,6 +11,20 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
+/**
+ * Comparte varios archivos a la vez (p. ej. por WhatsApp).
+ * Devuelve "shared", "cancelled" o "unsupported" (el navegador no permite compartir archivos).
+ */
+export async function shareFiles(files: File[], title: string): Promise<"shared" | "cancelled" | "unsupported"> {
+  if (typeof navigator === "undefined" || !navigator.canShare?.({ files })) return "unsupported";
+  try {
+    await navigator.share({ files, title });
+    return "shared";
+  } catch (err) {
+    return (err as DOMException).name === "AbortError" ? "cancelled" : "unsupported";
+  }
+}
+
 /** Comparte con la Web Share API; si no se puede, descarga. Devuelve false si se canceló. */
 export async function shareOrDownload(blob: Blob, fileName: string, title: string): Promise<boolean> {
   const file = new File([blob], fileName, { type: blob.type || "application/pdf" });

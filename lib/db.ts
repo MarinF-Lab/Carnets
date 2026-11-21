@@ -16,6 +16,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { track } from "./sync";
 
 export type Contractor = {
   id: string;
@@ -113,14 +114,15 @@ export async function createContractor(name: string, uid: string, groupId: strin
   const ref = doc(contractorsCol());
   const batch = writeBatch(db());
   batch.set(ref, { groupId, name: name.trim(), cardCount: 0, createdAt: serverTimestamp(), createdBy: uid });
-  await batch.commit();
+  // Sin esperar al servidor: aparece al instante y se sube en segundo plano.
+  track(batch.commit(), `el contratista ${name.trim()}`);
   return ref.id;
 }
 
 export async function renameContractor(id: string, name: string): Promise<void> {
   const batch = writeBatch(db());
   batch.update(doc(contractorsCol(), id), { name: name.trim() });
-  await batch.commit();
+  track(batch.commit(), "el nuevo nombre");
 }
 
 /** Elimina el contratista con todos sus carnets e imágenes (solo admin). */
@@ -221,19 +223,20 @@ export async function saveCard(input: {
   });
   batch.set(imagesDoc(ref.id), { front: input.images.front, back: input.images.back });
   batch.update(doc(contractorsCol(), input.contractorId), { cardCount: increment(1) });
-  await batch.commit();
+  // Sin esperar al servidor: queda guardado en el celular al instante y se sube en segundo plano.
+  track(batch.commit(), `el carnet de ${input.name.trim()}`);
   allCardsCache.delete(input.groupId);
   return ref.id;
 }
 
 /** Corrige el nombre y el RUT de un carnet (usuarios del grupo y admins). */
 export async function updateCard(id: string, data: { name: string; rut: string | null }, username: string): Promise<void> {
-  await updateDoc(doc(cardsCol(), id), {
+  track(updateDoc(doc(cardsCol(), id), {
     name: data.name.trim(),
     rut: data.rut,
     updatedAt: serverTimestamp(),
     updatedByName: username,
-  });
+  }), "los cambios del carnet");
   allCardsCache.clear();
 }
 

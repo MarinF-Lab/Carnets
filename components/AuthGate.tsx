@@ -3,6 +3,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { authErrorMessage, useAuth } from "./AuthProvider";
 import { GroupProvider } from "./GroupProvider";
+import { SyncStatus } from "./SyncStatus";
 import { btn, input, Spinner } from "./ui";
 
 const LAST_USER = "carnets.lastUser";
@@ -253,6 +254,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
       );
 
     case "allowed":
-      return <GroupProvider>{children}</GroupProvider>;
+      return (
+        <GroupProvider>
+          {children}
+          <SyncStatus />
+        </GroupProvider>
+      );
   }
 }

@@ -38,12 +38,14 @@ describe("rut", () => {
   });
 });
 
-import { pdfFileName, uniqueName, zipFileName } from "@/lib/pdf";
+import { combinedFileName, pdfFileName, uniqueName, zipFileName } from "@/lib/pdf";
 
 describe("nombres de archivo", () => {
   it("arma el nombre del PDF sin caracteres prohibidos", () => {
     expect(pdfFileName("Juan Pérez", "Constructora: Sur/Norte")).toBe("Juan Pérez - Constructora SurNorte.pdf");
     expect(zipFileName('Obras "Andes"')).toBe("Obras Andes.zip");
+    expect(combinedFileName("Sur/Norte", 12)).toBe("SurNorte - 12 carnets.pdf");
+    expect(combinedFileName("Sur", 1)).toBe("Sur - 1 carnet.pdf");
   });
 
   it("agrega (2), (3) a los nombres repetidos", () => {

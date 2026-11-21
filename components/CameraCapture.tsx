@@ -4,14 +4,21 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { analyzeAlignment, frameRect as baseFrameRect, SAMPLE_MARGIN, toGray } from "@/lib/align";
 import { focusAt, openBackCamera, setZoom, type CameraInfo } from "@/lib/camera";
 import { cropVideo, fileToCanvas, makeCanvas } from "@/lib/image";
-import { refineCrop } from "@/lib/refine";
 import { useSettings } from "@/lib/settings";
+import { useSync } from "@/lib/sync";
 import { CropEditor } from "./CropEditor";
 import { btn, Icon, Spinner } from "./ui";
 
 type Props = {
   /** "Lado frontal" o "Lado trasero" */
   title: string;
+  /** Texto secundario bajo el título (p. ej. "3 guardados"). */
+  subtitle?: string;
+  /**
+   * Empezar sin captura automática hasta que el carnet salga del marco
+   * (al seguir con el siguiente carnet, para no capturar el anterior).
+   */
+  startDisarmed?: boolean;
   onCapture: (canvas: HTMLCanvasElement) => void;
   onClose: () => void;
 };
@@ -36,8 +43,17 @@ function videoRect(v: HTMLVideoElement, cw: number, ch: number, r: { x: number; 
 }
 
 /** Cámara en vivo a pantalla completa con marco de carnet y respaldo de galería. */
-export function CameraCapture({ title, onCapture, onClose }: Props) {
+export function CameraCapture({ title, subtitle, startDisarmed = false, onCapture, onClose }: Props) {
   const { autoCapture } = useSettings();
+  const { pending } = useSync();
+
+  // Marcar que la cámara está abierta (oculta el aviso flotante de sincronización).
+  useEffect(() => {
+    document.body.dataset.camera = "1";
+    return () => {
+      delete document.body.dataset.camera;
+    };
+  }, []);
   const videoRef = useRef<HTMLVideoElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -133,8 +149,7 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
     const canvas = cropVideo(v, sx, sy, Math.min(v.videoWidth - sx, r.sw), Math.min(v.videoHeight - sy, r.sh));
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
-    // Recorte fino: bordes reales del carnet, sin fondo.
-    onCapture(refineCrop(canvas));
+    onCapture(canvas);
   }, [onCapture]);
 
   // Revisión continua del encuadre (~8 veces por segundo).
@@ -150,7 +165,7 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
     let missRun = 0;
     let alignedSince = 0;
     // Tras una captura, esperar a que el carnet salga del marco (para dar vuelta) antes de otra automática.
-    let armed = true;
+    let armed = !startDisarmed;
     let lastShot = 0;
     const id = window.setInterval(() => {
       const v = videoRef.current;
@@ -190,7 +205,7 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
       }
     }, 120);
     return () => window.clearInterval(id);
-  }, [status, cropSource, autoCapture]);
+  }, [status, cropSource, autoCapture, startDisarmed]);
 
   async function pickFile(file: File | undefined) {
     if (!file) return;
@@ -219,7 +234,14 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
         <button type="button" onClick={onClose} className={`${btn.ghost} text-white`} aria-label="Cerrar cámara">
           <Icon.close />
         </button>
-        <p className="text-lg font-semibold">{title}</p>
+        <div className="text-center">
+          <p className="text-lg leading-tight font-semibold">{title}</p>
+          {(subtitle || pending > 0) && (
+            <p className="text-xs text-white/70">
+              {[subtitle, pending > 0 ? `${pending} por subir` : null].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
         {cam && cam.backCameras.length > 1 ? (
           <button type="button" onClick={switchCamera} className={`${btn.ghost} text-white`} aria-label="Cambiar cámara">
             <Icon.switchCamera />
@@ -342,7 +364,7 @@ export function CameraCapture({ title, onCapture, onClose }: Props) {
           onCancel={() => setCropSource(null)}
           onDone={(canvas) => {
             setCropSource(null);
-            onCapture(refineCrop(canvas));
+            onCapture(canvas);
           }}
         />
       )}
